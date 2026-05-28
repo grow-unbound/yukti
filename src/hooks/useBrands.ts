@@ -2,8 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { CreateBrandInput } from '@/lib/zod';
-import { apiFetch, apiPost } from '@/lib/api-fetch';
+import type { BrandUpsertInput } from '@/lib/zod';
+import { apiFetch, apiPost, apiPatch } from '@/lib/api-fetch';
 
 export interface MasterBrand {
   id: string;
@@ -18,6 +18,8 @@ export interface TenantBrand {
   tenant_id: string;
   master_brand_id: string;
   display_name_override: string | null;
+  description_override: string | null;
+  logo_url_override: string | null;
   margin_pct: number | null;
   exclusivity: boolean | null;
   is_active: boolean;
@@ -99,6 +101,8 @@ export function useAddBrandToTenant() {
         tenant_id: '',
         master_brand_id: payload.master_brand_id,
         display_name_override: payload.display_name_override ?? null,
+        description_override: null,
+        logo_url_override: null,
         margin_pct: null,
         exclusivity: null,
         is_active: true,
@@ -131,22 +135,25 @@ export function useAddBrandToTenant() {
   });
 }
 
-export interface CreateCustomBrandError {
+export interface BrandSaveError {
   status: number;
   error: string;
   details?: unknown;
 }
 
-export function useCreateCustomBrand() {
+export function useSaveTenantBrand() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: CreateBrandInput): Promise<{ brand: TenantBrand }> => {
-      const res = await apiPost('/api/brands/custom', data);
+    mutationFn: async (data: BrandUpsertInput): Promise<{ brand: TenantBrand }> => {
+      const isEdit = Boolean(data.tenant_brand_id);
+      const res = isEdit
+        ? await apiPatch('/api/tenant/brands', data)
+        : await apiPost('/api/tenant/brands', data);
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Request failed' }));
-        throw { status: res.status, ...(err as object) } as CreateCustomBrandError;
+        throw { status: res.status, ...(err as object) } as BrandSaveError;
       }
 
       return res.json() as Promise<{ brand: TenantBrand }>;

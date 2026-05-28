@@ -102,10 +102,10 @@ export function CreateProductForm() {
       formData.pack_size && formData.pack_size !== ''
         ? Number(formData.pack_size)
         : undefined;
-    const gstRate =
-      formData.gst_rate && formData.gst_rate !== ''
-        ? Number(formData.gst_rate)
-        : undefined;
+    // const gstRate =
+    //   formData.gst_rate && formData.gst_rate !== ''
+    //     ? Number(formData.gst_rate)
+    //     : undefined;
 
     try {
       await createProduct.mutateAsync({

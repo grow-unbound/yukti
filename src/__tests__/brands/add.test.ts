@@ -14,6 +14,8 @@ interface TenantBrandRow {
   tenant_id: string;
   master_brand_id: string;
   display_name_override: string | null;
+  description_override: string | null;
+  logo_url_override: string | null;
   margin_pct: number | null;
   exclusivity: boolean | null;
   is_active: boolean;
@@ -36,6 +38,8 @@ const mockTenantBrandRow: TenantBrandRow = {
   tenant_id: 'tenant-uuid-001',
   master_brand_id: mockMasterBrand.id,
   display_name_override: null,
+  description_override: null,
+  logo_url_override: null,
   margin_pct: null,
   exclusivity: null,
   is_active: true,
@@ -113,6 +117,70 @@ describe('Tenant brands API - add brand', () => {
     const data = await res.json();
     expect(data.brand.master_brand_id).toBe(mockMasterBrand.id);
     expect(data.brand.is_active).toBe(true);
+  });
+
+  it('supports add with tenant override fields in unified flow', async () => {
+    const branded = {
+      ...mockTenantBrandRow,
+      display_name_override: 'Acme Premium',
+      description_override: 'Tenant-specific description',
+      logo_url_override: 'https://assets.dealflow.in/brands/acme.png',
+      margin_pct: 12.5,
+    };
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({ brand: branded }),
+    });
+
+    const res = await fetch('/api/tenant/brands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        master_brand_id: mockMasterBrand.id,
+        name: mockMasterBrand.name,
+        display_name_override: 'Acme Premium',
+        description_override: 'Tenant-specific description',
+        logo_url_override: 'https://assets.dealflow.in/brands/acme.png',
+        margin_pct: 12.5,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.brand.display_name_override).toBe('Acme Premium');
+    expect(data.brand.margin_pct).toBe(12.5);
+  });
+
+  it('supports updating an existing tenant brand via PATCH', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        brand: {
+          ...mockTenantBrandRow,
+          display_name_override: 'Acme Updated',
+          margin_pct: 15,
+        },
+      }),
+    });
+
+    const res = await fetch('/api/tenant/brands', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_brand_id: mockTenantBrandRow.id,
+        name: 'Acme Corp',
+        display_name_override: 'Acme Updated',
+        margin_pct: 15,
+      }),
+    });
+
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(data.brand.display_name_override).toBe('Acme Updated');
+    expect(data.brand.margin_pct).toBe(15);
   });
 
   it('newly added brand appears in tenant brands list', async () => {

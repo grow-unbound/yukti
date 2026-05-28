@@ -34,3 +34,17 @@ export async function apiPost<T>(url: string, body: T, init?: RequestInit): Prom
     body: JSON.stringify(body),
   });
 }
+
+export async function apiPatch<T>(url: string, body: T, init?: RequestInit): Promise<Response> {
+  const authHeaders = await getAuthHeaders();
+  return fetch(url, {
+    method: 'PATCH',
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+      ...init?.headers,
+    },
+    body: JSON.stringify(body),
+  });
+}

@@ -1,11 +1,10 @@
 'use client';
 
-import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Pencil, Plus } from 'lucide-react';
 
 import { SellerTopbar } from '@/components/layout/SellerTopbar';
 import { FeatureGate } from '@/components/FeatureGate';
-import { AddBrandCommand } from '@/components/seller/brands/AddBrandCommand';
+import { BrandFormDialog } from '@/components/seller/brands/BrandFormDialog';
 import { Button } from '@/components/ui/button';
 import { ErrorState, LoadingState, EmptyState } from '@/components/ui/empty-state';
 import { useTenantBrands } from '@/hooks/useBrands';
@@ -14,11 +13,12 @@ import type { TenantBrand } from '@/hooks/useBrands';
 function BrandAvatar({ brand }: { brand: TenantBrand }) {
   const masterBrand = brand.master_brand;
   const displayName = brand.display_name_override ?? masterBrand?.name ?? 'Unknown';
-  if (masterBrand?.logo_url) {
+  const logoUrl = brand.logo_url_override ?? masterBrand?.logo_url;
+  if (logoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={masterBrand.logo_url}
+        src={logoUrl}
         alt={displayName}
         className="w-10 h-10 rounded object-contain"
       />
@@ -40,6 +40,7 @@ function BrandAvatar({ brand }: { brand: TenantBrand }) {
 function BrandCard({ brand }: { brand: TenantBrand }) {
   const displayName = brand.display_name_override ?? brand.master_brand?.name ?? 'Unknown Brand';
   const slug = brand.master_brand?.slug ?? '';
+  const description = brand.master_brand?.description ?? '';
 
   return (
     <div className="bg-cream-100 rounded-lg shadow-xs border border-cream-200 p-4 flex items-center gap-4">
@@ -49,7 +50,20 @@ function BrandCard({ brand }: { brand: TenantBrand }) {
         {slug && (
           <p className="text-sm text-cream-600 truncate">{slug}</p>
         )}
+        {description && (
+          <p className="text-xs text-cream-500 truncate mt-1">{description}</p>
+        )}
       </div>
+      <BrandFormDialog
+        mode="edit"
+        brand={brand}
+        trigger={(
+          <Button variant="outline" size="sm">
+            <Pencil className="w-3.5 h-3.5 mr-1" />
+            Edit
+          </Button>
+        )}
+      />
     </div>
   );
 }
@@ -91,17 +105,7 @@ function BrandsContent() {
 }
 
 function BrandsActions() {
-  return (
-    <>
-      <Button asChild variant="ghost">
-        <Link href="/brands/new">
-          <Plus className="w-4 h-4 mr-1" />
-          Create custom brand
-        </Link>
-      </Button>
-      <AddBrandCommand />
-    </>
-  );
+  return <BrandFormDialog mode="create" />;
 }
 
 export default function BrandsPage() {

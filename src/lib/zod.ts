@@ -40,20 +40,16 @@ export const BrandSchema = z.object({
   external_ref: z.string().optional(),
 });
 
-// Schema for creating a private custom brand (used in CreateBrandForm)
-export const CreateBrandSchema = z.object({
+export const BrandUpsertSchema = z.object({
+  tenant_brand_id: z.string().uuid().optional(),
+  master_brand_id: z.string().uuid().optional(),
   name: z.string().min(1, 'Brand name is required'),
-  slug: z
-    .string()
-    .min(1, 'Slug is required')
-    .regex(/^[a-z0-9-]+$/, 'Slug may only contain lowercase letters and hyphens.'),
-  description: z.string().optional(),
-  logo_url: z
-    .string()
-    .url('Must be a valid URL')
-    .optional()
-    .or(z.literal('')),
+  display_name_override: z.string().optional(),
+  description_override: z.string().optional(),
+  logo_url_override: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  margin_pct: z.coerce.number().min(0).max(100).optional().nullable(),
 });
+export type BrandUpsertInput = z.infer<typeof BrandUpsertSchema>;
 
 // Tenant product schemas
 export const TenantProductSchema = z.object({
@@ -310,5 +306,4 @@ export type PriceListItemInput = z.infer<typeof PriceListItemSchema>;
 export type PublishedCatalogInput = z.infer<typeof PublishedCatalogSchema>;
 export type OrderInput = z.infer<typeof OrderSchema>;
 export type OrderItemInput = z.infer<typeof OrderItemSchema>;
-export type CreateBrandInput = z.infer<typeof CreateBrandSchema>;
 export type TenantProductInput = z.infer<typeof TenantProductSchema>;
