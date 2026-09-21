@@ -65,6 +65,8 @@ import {
   toPublicStorefrontPath,
 } from '@/lib/storefront-paths';
 import { isNextPrefetchRequest } from '@/lib/next-prefetch';
+import { classifyMiddlewareRequest, parseSampleRate } from '@/lib/middleware-cpu-sample';
+import { hasSupabaseAuthCookie } from '@/lib/server/supabase-auth-cookie';
 import { clientIpFromRequest, consumeEnumerationRateLimit, consumePublicCatalogRateLimit, tooManyRequestsResponse } from '@/lib/server/public-catalog-rate-limit';
 import { isPublicCatalogLive, resolveStorefrontTenantBySlug, resolveTenantSlugById } from '@/lib/server/resolve-storefront-tenant';
 import { recordViolationAndCheckChallenge } from '@/lib/server/ip-challenge';
@@ -172,6 +174,25 @@ function copyStorefrontHeaders(res: NextResponse, requestHeaders: Headers) {
 }
 
 export async function middleware(request: NextRequest) {
+  const sampleRate = parseSampleRate(process.env.MIDDLEWARE_CPU_SAMPLE_RATE);
+  if (sampleRate === 0 || Math.random() >= sampleRate) return handleRequest(request);
+
+  const cpuStart = process.cpuUsage();
+  const wallStart = performance.now();
+  const response = await handleRequest(request);
+  const cpu = process.cpuUsage(cpuStart);
+  console.log(JSON.stringify({
+    evt: 'mw_cpu_sample',
+    cls: classifyMiddlewareRequest(request.nextUrl.pathname, request.headers),
+    cpu_us: cpu.user + cpu.system,
+    wall_ms: Math.round(performance.now() - wallStart),
+    status: response.status,
+    has_session_cookie: hasSupabaseAuthCookie(request.cookies.getAll()),
+  }));
+  return response;
+}
+
+async function handleRequest(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const hostname = request.headers.get('host') ?? '';
   const requestHeaders = new Headers(request.headers);
@@ -528,6 +549,11 @@ type SessionRead = {
 
 async function readSession(request: NextRequest): Promise<SessionRead> {
   const refreshedAuthCookies: SessionRead['refreshedAuthCookies'] = [];
+  // No Supabase auth cookie => nothing to verify. Anonymous public-catalog visitors (the bulk of guest
+  // traffic), static-ish requests and analytics beacons skip building a client + getClaims().
+  if (!hasSupabaseAuthCookie(request.cookies.getAll())) {
+    return { claims: null, refreshedAuthCookies };
+  }
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -733,7 +759,13 @@ async function finalizeAuthenticated(
 
 export const config = {
   runtime: 'nodejs',
+  // Static matcher (Next requires a literal). Skipped: framework assets, the PostHog proxy (/ingest),
+  // and files with a static extension that are NOT under /api. The extension exclusion must be anchored
+  // at the END of the path; the previous `\\.svg` form only matched paths STARTING with ".svg", so
+  // /brand/*.svg and /logo.png still ran the whole middleware. API paths never skip: skipping would also
+  // skip stripVerifiedHeaders, letting a client forge x-verified-* headers.
+  // /manifest.webmanifest is deliberately NOT excluded (tenant-branded, needs x-tenant-subdomain).
   matcher: [
-    '/((?!_next/static|_next/image|_next/webpack-hmr|favicon.ico|robots.txt|sitemap.xml|\\.png|\\.jpg|\\.jpeg|\\.gif|\\.svg|\\.webp|\\.ico|\\.css|\\.js|\\.map|\\.txt|\\.woff|\\.woff2|\\.ttf).*)',
+    '/((?!_next/static|_next/image|_next/webpack-hmr|favicon\\.ico|robots\\.txt|sitemap\\.xml|ingest(?:/|$)|(?!api/).*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|woff2?|ttf|otf)$).*)',
   ],
 };
