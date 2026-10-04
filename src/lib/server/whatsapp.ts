@@ -33,8 +33,19 @@ const WHATSAPP_OTP_TEMPLATE_LOCALE = 'en_US';
 const WHATSAPP_LOGIN_PRODUCT_NAME = 'Login to Yukti';
 const WHATSAPP_ACTIVATION_PRODUCT_NAME = 'Set up Yukti';
 const WHATSAPP_RESET_PRODUCT_NAME = 'Reset Yukti';
-const SELLER_TEAM_ACTIVATION_URL = 'https://app.useyukti.in/activate';
 const FALLBACK_TEMPLATE_LOCALE = 'en';
+
+function buildSellerTeamActivationUrl(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl) return '/activate';
+  try {
+    return new URL('/activate', appUrl).toString();
+  } catch {
+    return '/activate';
+  }
+}
+
+const SELLER_TEAM_ACTIVATION_URL = buildSellerTeamActivationUrl();
 const TRANSACTIONAL_TEMPLATE_SHAPES: Record<string, WhatsAppTemplateValidationShape> = {
   order_received_seller: {
     meta_template_name: 'order_received_seller',

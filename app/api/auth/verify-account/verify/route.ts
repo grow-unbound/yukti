@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase';
+import { hashOtp } from '@/lib/server/buyer-otp-store';
+import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
 
 const VerifyBodySchema = z.object({
   email: z.string().email(),
@@ -34,6 +36,9 @@ async function markTenantVerified(userId: string): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const surfaceError = requireSupplierWorkspaceSurface(request);
+  if (surfaceError) return surfaceError;
+
   if (!supabaseAdmin) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
   }
@@ -52,8 +57,59 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const { email, token, channel, user_id } = parsed.data;
 
-  // --- EMAIL CHANNEL: delegate OTP validation to Supabase Auth ---
+  // --- EMAIL CHANNEL: validate Resend-delivered OTPs from our DB store.
+  // Fall back to Supabase Auth OTP for any in-flight legacy emails.
   if (channel === 'email') {
+    const baseQuery = supabaseAdmin
+      .schema('app')
+      .from('email_verification_otps')
+      .select('id, otp, expires_at, attempts, tenant_id, user_id')
+      .eq('email', email)
+      .eq('channel', 'email')
+      .is('verified_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const { data: otpRecord } = await (user_id ? baseQuery.eq('user_id', user_id) : baseQuery).single();
+
+    if (otpRecord) {
+      if (new Date() > new Date(otpRecord.expires_at)) {
+        return NextResponse.json({ error: 'OTP has expired. Please request a new one.' }, { status: 400 });
+      }
+
+      if (otpRecord.attempts >= 5) {
+        return NextResponse.json({ error: 'Too many attempts. Please request a new OTP.' }, { status: 400 });
+      }
+
+      if (otpRecord.otp !== hashOtp(token) && otpRecord.otp !== token) {
+        await supabaseAdmin
+          .schema('app')
+          .from('email_verification_otps')
+          .update({ attempts: otpRecord.attempts + 1, updated_at: new Date().toISOString() })
+          .eq('id', otpRecord.id);
+
+        const remaining = 4 - otpRecord.attempts;
+        return NextResponse.json(
+          { error: 'Incorrect OTP.', remaining_attempts: remaining },
+          { status: 400 },
+        );
+      }
+
+      await supabaseAdmin
+        .schema('app')
+        .from('email_verification_otps')
+        .update({ verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', otpRecord.id);
+
+      await supabaseAdmin
+        .schema('app')
+        .from('tenants')
+        .update({ email_verified_at: new Date().toISOString() })
+        .eq('id', otpRecord.tenant_id);
+
+      return NextResponse.json({ success: true });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -106,7 +162,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Too many attempts. Please request a new OTP.' }, { status: 400 });
   }
 
-  if (otpRecord.otp !== token) {
+  if (otpRecord.otp !== hashOtp(token) && otpRecord.otp !== token) {
     await supabaseAdmin
       .schema('app')
       .from('email_verification_otps')

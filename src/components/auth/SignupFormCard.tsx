@@ -151,7 +151,7 @@ export function SignupFormCard() {
         return;
       }
 
-      setApiError('Account was created but verification could not be initiated. Please sign in.');
+      setApiError('Account was created but verification could not be initiated. Please login.');
       posthog?.capture('signup_failed', {
         failure_type: 'verification_not_initiated',
         status: res.status,
@@ -180,7 +180,7 @@ export function SignupFormCard() {
         <YuktiLogo variant="stacked-lockup" className="h-14 w-[76px]" priority />
       </div>
 
-      <h1 className="font-display text-h2 text-cream-900 mb-1">Create your seller account</h1>
+      <h1 className="font-display text-h2 text-cream-900 mb-1">Create your Supplier workspace</h1>
       <p className="text-body-sm text-cream-600 mb-2">
         For manufacturers, distributors, and wholesalers selling in bulk to other businesses
       </p>
@@ -297,14 +297,14 @@ export function SignupFormCard() {
           disabled={isSubmitting || (!!turnstileSiteKey && !turnstileToken)}
           className="w-full px-4 py-2.5 rounded-md bg-[#221E1A] hover:bg-[#3D3630] active:bg-[#2E2A26] active:scale-[0.97] text-cream-50 text-body-sm font-semibold transition-all duration-base disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSubmitting ? 'Creating account…' : 'Create Account'}
+          {isSubmitting ? 'Creating workspace…' : 'Create workspace'}
         </button>
       </form>
 
       <p className="mt-5 text-center text-body-sm text-cream-600">
         Already have an account?{' '}
         <Link href="/login" className="text-ember-400 hover:text-ember-500 font-medium transition-colors">
-          Sign in
+          Login
         </Link>
       </p>
     </div>

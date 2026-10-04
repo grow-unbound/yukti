@@ -1,3 +1,5 @@
+import { sendSetupPasswordInviteEmail } from '@/lib/server/email';
+
 type AnyAdminClient = any;
 type AnyQuery = any;
 
@@ -90,6 +92,22 @@ export async function syncLocationAssignees(
   if (desiredUsers.length === 0) return [];
 
   const now = new Date().toISOString();
+  const { data: tenantRow } = await admin
+    .schema('app')
+    .from('tenants')
+    .select('business_name')
+    .eq('id', tenantId)
+    .maybeSingle();
+  const tenantName = asString(tenantRow?.business_name) ?? 'Your team';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  let setupPasswordRedirectTo: string | undefined;
+  if (appUrl) {
+    try {
+      setupPasswordRedirectTo = new URL('/setup-password', appUrl).toString();
+    } catch {
+      setupPasswordRedirectTo = undefined;
+    }
+  }
 
   // Previously fetched every user in the whole project (listUsers()) up front to check
   // for an existing account before inviting. Invite directly instead — it's the common
@@ -104,17 +122,30 @@ export async function syncLocationAssignees(
     let userId: string | null = null;
     let userName = user.user_name ?? null;
 
-    const { data: inviteData, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: {
-        tenant_id: tenantId,
-        role: 'seller_assistant',
-        full_name: user.user_name ?? user.email,
+    const { data: inviteData, error } = await admin.auth.admin.generateLink({
+      type: 'invite',
+      email,
+      options: {
+        ...(setupPasswordRedirectTo ? { redirectTo: setupPasswordRedirectTo } : {}),
+        data: {
+          tenant_id: tenantId,
+          role: 'seller_assistant',
+          full_name: user.user_name ?? user.email,
+        },
       },
     });
 
     if (!error && inviteData?.user?.id) {
       userId = inviteData.user.id;
       userName = userName ?? asString((inviteData.user.user_metadata ?? {})['full_name']) ?? user.email;
+      if (inviteData.properties?.action_link) {
+        await sendSetupPasswordInviteEmail({
+          to: email,
+          inviteUrl: inviteData.properties.action_link,
+          tenantName,
+          recipientName: userName,
+        });
+      }
     } else if (error && /already.*(registered|exists)/i.test(error.message ?? '')) {
       if (!authByEmail) {
         const { data: authUsers } = await admin.auth.admin.listUsers();

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getRequestSupabaseClient } from '@/lib/server/request-supabase';
+import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
+  const surfaceError = requireSupplierWorkspaceSurface(request);
+  if (surfaceError) return surfaceError;
+
   const supabase = await getRequestSupabaseClient();
   const { data: { user }, error: userError } = await supabase.auth.getUser();
 

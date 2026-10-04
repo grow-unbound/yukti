@@ -3,7 +3,8 @@ import { NextRequest } from 'next/server';
 
 const getVerifiedClaimsMock = vi.fn();
 const getFlagMock = vi.fn();
-const inviteUserByEmailMock = vi.fn();
+const generateLinkMock = vi.fn();
+const sendSetupPasswordInviteEmailMock = vi.fn();
 
 type QueryResult = {
   data?: unknown;
@@ -82,10 +83,14 @@ vi.mock('@/lib/supabase', () => ({
     schema: (...args: unknown[]) => schemaMock(...args),
     auth: {
       admin: {
-        inviteUserByEmail: (...args: unknown[]) => inviteUserByEmailMock(...args),
+        generateLink: (...args: unknown[]) => generateLinkMock(...args),
       },
     },
   },
+}));
+
+vi.mock('@/lib/server/email', () => ({
+  sendSetupPasswordInviteEmail: (...args: unknown[]) => sendSetupPasswordInviteEmailMock(...args),
 }));
 
 import { POST } from '../../app/api/customers/[id]/users/route';
@@ -109,10 +114,14 @@ describe('buyer user routes', () => {
       location_ids: null,
     });
     getFlagMock.mockResolvedValue(true);
-    inviteUserByEmailMock.mockResolvedValue({
-      data: { user: { id: 'auth-user-1' } },
+    generateLinkMock.mockResolvedValue({
+      data: {
+        user: { id: 'auth-user-1' },
+        properties: { action_link: 'http://localhost:3000/auth/v1/verify?token=invite-token' },
+      },
       error: null,
     });
+    sendSetupPasswordInviteEmailMock.mockResolvedValue(undefined);
   });
 
   it('creates, updates, soft-deletes, and invites buyer users', async () => {
@@ -122,8 +131,17 @@ describe('buyer user routes', () => {
       { data: { id: 'user-1', buyer_id: 'buyer-1' } },
       { data: null },
       { data: { id: 'user-1', buyer_id: 'buyer-1', email: 'amit@example.com' } },
-      { data: { id: 'user-1', buyer_id: 'buyer-1', email: 'amit@example.com' } },
+      {
+        data: {
+          id: 'user-1',
+          buyer_id: 'buyer-1',
+          email: 'amit@example.com',
+          first_name: 'Amit',
+          last_name: 'Sharma',
+        },
+      },
     ];
+    dbResponses['app.tenants:select'] = [{ data: { business_name: 'Acme Distribution' } }];
     dbResponses['app.buyer_users:insert'] = [{
       data: {
         id: 'user-1',
@@ -209,16 +227,26 @@ describe('buyer user routes', () => {
     );
     expect(inviteResponse.status).toBe(200);
 
-    expect(inviteUserByEmailMock).toHaveBeenCalledWith(
-      'amit@example.com',
+    expect(generateLinkMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: {
-          tenant_id: 'tenant-1',
-          buyer_id: 'buyer-1',
-          buyer_user_id: 'user-1',
-        },
+        type: 'invite',
+        email: 'amit@example.com',
+        options: expect.objectContaining({
+          redirectTo: 'http://localhost:3000/setup-password',
+          data: {
+            tenant_id: 'tenant-1',
+            buyer_id: 'buyer-1',
+            buyer_user_id: 'user-1',
+          },
+        }),
       }),
     );
+    expect(sendSetupPasswordInviteEmailMock).toHaveBeenCalledWith({
+      to: 'amit@example.com',
+      inviteUrl: 'http://localhost:3000/auth/v1/verify?token=invite-token',
+      tenantName: 'Acme Distribution',
+      recipientName: 'Amit Sharma',
+    });
     expect(dbCalls['app.buyer_users:update']?.payload).toMatchObject({
       user_id: 'auth-user-1',
       is_active: true,

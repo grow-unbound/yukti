@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { LoginSchema } from '@/lib/zod';
 import { getPostHogClient, seedTenantFeatureFlags } from '@/lib/posthog-server';
 import { stampSellerImplicitWhatsappConsent } from '@/lib/server/whatsapp-consent';
 import { isSigninLocked, recordFailedSignin, clearSigninAttempts } from '@/lib/server/auth-signin-lockout';
+import { sendAccountVerificationOtpEmail } from '@/lib/server/account-verification';
+import { resolveAuthSurfaceFromRequest } from '@/lib/server/auth-surface-server';
 
 function isPhone(value: string) {
   return /^[0-9]{10}$/.test(value.trim());
@@ -33,6 +34,14 @@ export async function POST(request: NextRequest) {
     }
 
     const { identifier, password } = validation.data;
+    const surface = resolveAuthSurfaceFromRequest(request).surface;
+
+    if (surface !== 'supplier_workspace') {
+      return NextResponse.json(
+        { error: 'Email login is only available for Supplier workspace accounts.' },
+        { status: 400 },
+      );
+    }
 
     if (isPhone(identifier)) {
       return NextResponse.json(
@@ -157,16 +166,12 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (!tenantRow?.email_verified_at) {
-          // Send a fresh email OTP and redirect to verification
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-          const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-          if (supabaseUrl && supabaseAnonKey) {
-            const anonClient = createClient(supabaseUrl, supabaseAnonKey);
-            await anonClient.auth.signInWithOtp({
-              email: authData.user.email!,
-              options: { shouldCreateUser: false },
-            });
-          }
+          // Send a fresh email OTP and redirect to verification.
+          await sendAccountVerificationOtpEmail({
+            user_id: authData.user.id,
+            tenant_id: workspace.tenant_id,
+            email: authData.user.email!,
+          });
 
           const phone = (authData.user.user_metadata?.phone as string | null) ?? null;
           return NextResponse.json({

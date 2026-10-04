@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import { SUPPORTED_WHATSAPP_COUNTRIES } from '@/lib/phone';
 
 interface PhoneInputProps {
   onSubmit: (phoneNumber: string) => void | Promise<void>;
@@ -24,11 +25,13 @@ export function PhoneInput({
   loadingLabel = 'Sending OTP…',
 }: PhoneInputProps) {
   const [value, setValue] = useState('');
+  const [countryIso, setCountryIso] = useState<(typeof SUPPORTED_WHATSAPP_COUNTRIES)[number]['iso']>('IN');
+  const selectedCountry = SUPPORTED_WHATSAPP_COUNTRIES.find((country) => country.iso === countryIso) ?? SUPPORTED_WHATSAPP_COUNTRIES[0];
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const cleaned = value.trim().replace(/\s+/g, '');
-    if (cleaned) onSubmit(cleaned);
+    if (cleaned) onSubmit(`+${selectedCountry.dialCode}${cleaned}`);
   }
 
   return (
@@ -37,17 +40,31 @@ export function PhoneInput({
         <label htmlFor="phone" className={labelCls}>
           Mobile number
         </label>
-        <div className="flex items-stretch">
-          <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-cream-300 bg-cream-100 text-cream-600 text-body-sm select-none">
-            +91
-          </span>
+        <div className="grid grid-cols-[minmax(7.75rem,9rem),1fr] items-stretch">
+          <label className="sr-only" htmlFor="phone-country">Country code</label>
+          <select
+            id="phone-country"
+            value={countryIso}
+            onChange={(event) => {
+              setCountryIso(event.target.value as typeof countryIso);
+              setValue('');
+            }}
+            disabled={loading}
+            className="min-w-0 rounded-l-md border border-r-0 border-cream-300 bg-cream-100 px-2 text-body-sm text-cream-800 outline-none transition-colors focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 disabled:opacity-50"
+          >
+            {SUPPORTED_WHATSAPP_COUNTRIES.map((country) => (
+              <option key={country.iso} value={country.iso}>
+                {country.flag} +{country.dialCode} {country.name}
+              </option>
+            ))}
+          </select>
           <input
             id="phone"
             type="tel"
             inputMode="numeric"
-            pattern="[0-9]{10}"
-            maxLength={10}
-            placeholder="9876543210"
+            pattern={`[0-9]{${selectedCountry.nationalLength}}`}
+            maxLength={selectedCountry.nationalLength}
+            placeholder={selectedCountry.placeholder}
             value={value}
             onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
             disabled={loading}
@@ -64,7 +81,7 @@ export function PhoneInput({
 
       <button
         type="submit"
-        disabled={loading || value.length !== 10}
+        disabled={loading || value.length !== selectedCountry.nationalLength}
         className="w-full px-4 py-2.5 rounded-md bg-teal-500 hover:bg-teal-600 text-cream-50 text-body-sm font-semibold transition-colors duration-base disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? loadingLabel : submitLabel}

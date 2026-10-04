@@ -14,6 +14,7 @@ import {
   tenantSlugFromReturnTo,
 } from '@/lib/server/catalog-return-to';
 import { getTenantBrandingBySlug } from '@/lib/server/tenant-branding';
+import { resolveAuthSurfaceFromRequest } from '@/lib/server/auth-surface-server';
 
 const MAX_ATTEMPTS = 5;
 
@@ -37,6 +38,8 @@ export async function POST(request: NextRequest) {
     const ref_id: string = (body?.ref_id ?? '').trim();
     const otp: string = (body?.otp ?? '').trim();
     const returnTo = body?.return_to?.trim() || null;
+    const surface = resolveAuthSurfaceFromRequest(request).surface;
+    const isBuyerSurface = surface === 'buyer_catalog' || surface === 'tenant_buyer_catalog';
 
     if (!ref_id || !otp) {
       return NextResponse.json({ error: 'ref_id and otp are required' }, { status: 400 });
@@ -106,7 +109,16 @@ export async function POST(request: NextRequest) {
     // already dedups true same-account collisions (a buyer row whose user_id
     // matches an existing seller). No kind-level priority beyond that: a seller
     // at one tenant and a buyer at an unrelated tenant should both be offered.
-    const effectiveCandidates = record.candidates;
+    const effectiveCandidates = isBuyerSurface
+      ? record.candidates.filter((candidate) => candidate.kind === 'buyer')
+      : record.candidates;
+
+    if (effectiveCandidates.length === 0) {
+      return NextResponse.json(
+        { error: 'No buyer account found for this number.' },
+        { status: 403 },
+      );
+    }
 
     const onCatalogHost = isCatalogRequest(request);
     if (onCatalogHost && returnTo) {

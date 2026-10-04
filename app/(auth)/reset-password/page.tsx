@@ -15,6 +15,7 @@ const labelCls =
 export default function ResetPasswordPage() {
   const router = useRouter();
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [accountKind, setAccountKind] = useState<'seller' | 'buyer' | 'unknown'>('unknown');
   const [sessionReady, setSessionReady] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -54,7 +55,16 @@ export default function ResetPasswordPage() {
         (data.user.user_metadata?.full_name as string | undefined) ??
         data.user.email ??
         null;
+      const metadata = data.user.user_metadata ?? {};
+      const appMetadata = data.user.app_metadata ?? {};
+      const isBuyerAccount = typeof metadata.buyer_id === 'string'
+        || typeof metadata.buyer_user_id === 'string'
+        || typeof appMetadata.current_buyer_id === 'string';
+      const isSellerAccount = typeof metadata.role === 'string' && metadata.role.startsWith('seller_')
+        || typeof metadata.tenant_id === 'string'
+        || typeof appMetadata.current_tenant_id === 'string';
       setDisplayName(name);
+      setAccountKind(isBuyerAccount ? 'buyer' : isSellerAccount ? 'seller' : 'unknown');
       setSessionReady(true);
     };
 
@@ -103,7 +113,11 @@ export default function ResetPasswordPage() {
         {displayName ? `Hi ${displayName.split(' ')[0]}, set a new password` : 'Set a new password'}
       </h1>
       <p className="text-body-sm text-cream-600 mb-6">
-        Choose a strong password for your account.
+        {accountKind === 'seller'
+          ? 'Choose a strong password for your Supplier workspace account.'
+          : accountKind === 'buyer'
+            ? 'Choose a strong password for your supplier catalog account.'
+            : 'Choose a strong password for your Yukti account.'}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -180,7 +194,7 @@ export default function ResetPasswordPage() {
         <p className="text-caption text-cream-600">
           Already remembered it?{' '}
           <Link href="/login" className="text-ember-400 hover:text-ember-500 font-medium transition-colors">
-            Sign in
+            Login
           </Link>
         </p>
       </div>
