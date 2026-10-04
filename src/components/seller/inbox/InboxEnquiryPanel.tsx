@@ -17,6 +17,35 @@ function money(value: number) {
   return formatNumberValue(value, 'CURRENCY_EXACT');
 }
 
+function hasVelocitySignal(velocity: EnquiryTriageLine['velocity']): boolean {
+  return velocity.unitsPerWeek > 0 || velocity.daysCover != null || velocity.lastInvoiceAt != null;
+}
+
+function hasOperationalDetails(line: EnquiryTriageLine): boolean {
+  return line.stock.tone !== 'ok'
+    || line.onHand > 0
+    || hasVelocitySignal(line.velocity)
+    || line.alternates.length > 0;
+}
+
+function linePriceFacts(line: EnquiryTriageLine, hiddenPricing: boolean): Array<{ label: string; value: string; strong?: boolean }> {
+  const facts: Array<{ label: string; value: string; strong?: boolean }> = [];
+  const targetLabel = buildTargetRangeLabel(line.targetMin, line.targetMax);
+
+  if (hiddenPricing) {
+    if (targetLabel) facts.push({ label: 'Buyer target', value: targetLabel });
+    if (line.resolvedPrice != null) facts.push({ label: 'Resolved price', value: money(line.resolvedPrice) });
+    if (line.unitPrice != null && line.unitPrice > 0) facts.push({ label: 'Your quote', value: money(line.unitPrice), strong: true });
+  } else if (line.unitPrice != null && line.unitPrice > 0) {
+    facts.push({ label: 'Your quote', value: money(line.unitPrice), strong: true });
+  } else if (line.resolvedPrice != null) {
+    facts.push({ label: 'Resolved price', value: money(line.resolvedPrice) });
+  }
+
+  facts.push({ label: 'Buyer quantity', value: String(line.qty), strong: true });
+  return facts;
+}
+
 function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine; estimateId: string; entryId: string }) {
   const substitute = useSubstituteEnquiryLine(entryId);
   const [substitutingId, setSubstitutingId] = useState<string | null>(null);
@@ -36,7 +65,7 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
   return (
     <div className="border-t border-cream-200 bg-cream-50 px-4 py-4">
       <p className="text-base text-cream-700">
-        Buyer asked for {line.qty}; {line.onHand} available.
+        Buyer asked for {line.qty}; {line.stock.label.toLowerCase()}.
         {line.alternates.length > 0
           ? ' In-stock alternatives, same category first — substituting updates this line in place:'
           : ' No in-stock alternatives found in this category or brand.'}
@@ -63,7 +92,9 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
                     {alt.buyerPrice != null ? money(alt.buyerPrice) : '—'}
                   </span>
                   <span className="font-mono text-base tabular-nums text-cream-800">{alt.available} in stock</span>
-                  <span className="hidden font-mono text-sm tabular-nums text-cream-500 sm:inline">{velocityLabel(alt.velocity)}</span>
+                  {hasVelocitySignal(alt.velocity) ? (
+                    <span className="hidden font-mono text-sm tabular-nums text-cream-500 sm:inline">{velocityLabel(alt.velocity)}</span>
+                  ) : null}
                   <button
                     type="button"
                     disabled={substitute.isPending}
@@ -82,14 +113,24 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
   );
 }
 
-function ReadOnlyLineCard({ line, imageUrl, estimateId, entryId }: { line: EnquiryTriageLine; imageUrl: string | null; estimateId: string; entryId: string }) {
-  const [altsOpen, setAltsOpen] = useState(false);
+function ReadOnlyLineCard({
+  line,
+  imageUrl,
+  estimateId,
+  entryId,
+  hiddenPricing,
+}: {
+  line: EnquiryTriageLine;
+  imageUrl: string | null;
+  estimateId: string;
+  entryId: string;
+  hiddenPricing: boolean;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [imgError, setImgError] = useState(false);
   const short = line.stock.tone !== 'ok';
-  const targetLabel = buildTargetRangeLabel(line.targetMin, line.targetMax);
-  const altLabel = line.alternates.length > 0
-    ? `${line.alternates.length} alternative${line.alternates.length === 1 ? '' : 's'}`
-    : 'No alternatives';
+  const showDetailsControl = hasOperationalDetails(line);
+  const facts = linePriceFacts(line, hiddenPricing);
 
   return (
     <div className="overflow-hidden rounded-[14px] border border-cream-200">
@@ -111,53 +152,56 @@ function ReadOnlyLineCard({ line, imageUrl, estimateId, entryId }: { line: Enqui
           </div>
         </div>
 
-        {/* Mobile: 2 cols x 3 rows (target|resolved, qty|quote, stock|sales) so "Your quote"
-            sits under "Resolved price". Desktop: 3 cols -- line 1 target/resolved/quote,
-            line 2 stock/sales/qty. */}
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <div className="order-1">
-            <p className={HEAD_CLASS}>Buyer target</p>
-            <p className="mt-0.5 font-mono text-base text-cream-700">{targetLabel ?? 'None given'}</p>
-          </div>
-          <div className="order-2">
-            <p className={HEAD_CLASS}>Resolved price</p>
-            <p className="mt-0.5 font-mono text-base text-cream-700">{line.resolvedPrice != null ? money(line.resolvedPrice) : '—'}</p>
-          </div>
-          <div className="order-4 sm:order-3">
-            <p className={HEAD_CLASS}>Your quote</p>
-            {line.unitPrice != null && line.unitPrice > 0 ? (
-              <p className="mt-0.5 font-mono text-base font-semibold tabular-nums text-cream-900">{money(line.unitPrice)}</p>
-            ) : (
-              <p className="mt-0.5 text-base text-cream-500">Not quoted yet</p>
-            )}
-          </div>
-          <div className="order-5 sm:order-4">
-            <p className={HEAD_CLASS}>Stock</p>
-            <StockCell stock={line.stock} onHand={line.onHand} align="start" />
-          </div>
-          <div className="order-6 sm:order-5">
-            <p className={HEAD_CLASS}>Recent sales</p>
-            <VelocityCell velocity={line.velocity} align="start" />
-          </div>
-          <div className="order-3 sm:order-6">
-            <p className={HEAD_CLASS}>Buyer quantity</p>
-            <p className="mt-0.5 font-mono text-base font-semibold tabular-nums text-cream-900">{line.qty}</p>
-          </div>
+          {facts.map((fact) => (
+            <div key={fact.label}>
+              <p className={HEAD_CLASS}>{fact.label}</p>
+              <p className={cn(
+                'mt-0.5 font-mono text-base tabular-nums text-cream-700',
+                fact.strong && 'font-semibold text-cream-900',
+              )}
+              >
+                {fact.value}
+              </p>
+            </div>
+          ))}
         </div>
 
-        {short ? (
+        {showDetailsControl ? (
           <button
             type="button"
-            onClick={() => setAltsOpen((v) => !v)}
-            aria-expanded={altsOpen}
-            className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-cream-800 hover:text-cream-950"
+            onClick={() => setDetailsOpen((v) => !v)}
+            aria-expanded={detailsOpen}
+            className={cn(
+              'mt-3 inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors',
+              short
+                ? 'border-warning-200 bg-warning-50 text-warning-700 hover:bg-warning-100'
+                : 'border-cream-300 bg-white text-cream-700 hover:bg-cream-100',
+            )}
           >
-            {altLabel}
-            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', altsOpen && 'rotate-180')} aria-hidden />
+            {short ? `Stock gap: ${line.stock.label}` : 'Stock and sales'}
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
           </button>
         ) : null}
+
+        {detailsOpen ? (
+          <div className="mt-3 grid grid-cols-1 gap-3 rounded-[10px] border border-cream-200 bg-white px-3 py-3 sm:grid-cols-2">
+            {(short || line.onHand > 0) ? (
+              <div>
+                <p className={HEAD_CLASS}>Stock</p>
+                <StockCell stock={line.stock} onHand={line.onHand} align="start" />
+              </div>
+            ) : null}
+            {hasVelocitySignal(line.velocity) ? (
+              <div>
+                <p className={HEAD_CLASS}>Recent sales</p>
+                <VelocityCell velocity={line.velocity} align="start" />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      {short && altsOpen ? <AlternatesList line={line} estimateId={estimateId} entryId={entryId} /> : null}
+      {short && detailsOpen ? <AlternatesList line={line} estimateId={estimateId} entryId={entryId} /> : null}
     </div>
   );
 }
@@ -194,6 +238,7 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
             imageUrl={imageById.get(line.id) ?? null}
             estimateId={data.estimateId}
             entryId={entryId}
+            hiddenPricing={data.hiddenPricing}
           />
         ))}
       </div>

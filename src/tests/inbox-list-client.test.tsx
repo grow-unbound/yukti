@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const useInboxEntriesMock = vi.fn();
@@ -7,11 +7,17 @@ const useParamsMock = vi.fn();
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
 const useEnquiryTriageByIdsMock = vi.fn(() => new Map());
+const markOpenMutateMock = vi.fn();
+const useAuthMock = vi.fn(() => ({ tenantProfile: { role: 'seller_admin' } }));
 
 vi.mock('@/hooks/useInboxEntries', () => ({
+  useApplyGenericEntryAction: () => ({ mutate: markOpenMutateMock }),
   useBuyerOutstandingInvoices: () => ({ data: undefined, isLoading: false, isError: false }),
   useInboxEntries: (...args: unknown[]) => useInboxEntriesMock(...args),
   useEnquiryTriageByIds: (...args: unknown[]) => useEnquiryTriageByIdsMock(...args),
+}));
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => useAuthMock(),
 }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, replace: replaceMock }),
@@ -56,6 +62,9 @@ describe('InboxListClient', () => {
     useParamsMock.mockReturnValue({ id: 'b1' });
     pushMock.mockReset();
     replaceMock.mockReset();
+    markOpenMutateMock.mockReset();
+    useAuthMock.mockReset();
+    useAuthMock.mockReturnValue({ tenantProfile: { role: 'seller_admin' } });
     useEnquiryTriageByIdsMock.mockReset();
     useEnquiryTriageByIdsMock.mockReturnValue(new Map());
     window.localStorage?.clear?.();
@@ -102,6 +111,50 @@ describe('InboxListClient', () => {
     expect(link).toHaveAttribute('href', '/today/b1');
   });
 
+  it('marks new entries opened and hides the new badge when a buyer row is reviewed', async () => {
+    const enquiryEntry = {
+      ...ENTRIES[0],
+      id: 'e2',
+      buyer_id: 'b2',
+      buyer_name: 'Phani Krishna Yukti',
+      entry_type: 'new_enquiry',
+      source_channel: 'storefront',
+      source_entity_type: 'estimate',
+      source_entity_id: 'est1',
+      title: 'Phani Krishna Yukti',
+      summary: '₹0 · Open enquiry',
+      amount: 0,
+      metadata: { estimate_number: 'EST-2026-0005' },
+      allowed_actions: ['reply_quote', 'convert'],
+    };
+    useInboxEntriesMock.mockReturnValue({ data: { entries: [enquiryEntry], nextCursor: null }, isLoading: false, isError: false });
+    useEnquiryTriageByIdsMock.mockReturnValue(new Map([
+      ['e2', {
+        estimateId: 'est1', estimateNumber: 'EST-2026-0005', status: 'sent', hiddenPricing: false,
+        totalAmount: 13570, notes: null,
+        lines: [
+          { id: 'l1', tenantProductId: 'p1', name: 'Gate Valve 150mm', sku: 'SKU-1', brandName: null, qty: 1, unitPrice: null, targetMin: null, targetMax: null, buyerNote: null, onHand: 5, stock: { tone: 'ok', label: 'In stock', shortBy: 0 }, priceState: 'awaiting_quote', velocity: { unitsPerWeek: 0, daysCover: null, lastInvoiceAt: null }, alternates: [] },
+        ],
+      }],
+    ]));
+    renderWithClient(<InboxListClient />);
+    expect(screen.getByText('NEW')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Phani Krishna Yukti').closest('a')!);
+    expect(markOpenMutateMock).toHaveBeenCalledWith({ entryId: 'e2', action: 'open' });
+    await waitFor(() => {
+      expect(screen.queryByText('NEW')).not.toBeInTheDocument();
+    });
+  });
+
+  it('hides approval copy and the approvals filter for seller assistants', () => {
+    useAuthMock.mockReturnValue({ tenantProfile: { role: 'seller_assistant' } });
+    useInboxEntriesMock.mockReturnValue({ data: { entries: ENTRIES, nextCursor: null }, isLoading: false, isError: false });
+    renderWithClient(<InboxListClient />);
+    expect(screen.queryByRole('button', { name: /approvals/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/approvals, enquiries/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/enquiries, orders and collections waiting on you/i)).toBeInTheDocument();
+  });
+
   it('shows the empty state when there are no active entries', () => {
     useInboxEntriesMock.mockReturnValue({ data: { entries: [], nextCursor: null }, isLoading: false, isError: false });
     renderWithClient(<InboxListClient />);
@@ -132,7 +185,7 @@ describe('InboxListClient', () => {
     expect(document.cookie).toContain('yukti_today_vp=desktop');
   });
 
-  it('enriches an enquiry row with estimate number, item preview, and an at-risk badge', () => {
+  it('enriches an enquiry row with estimate number, item preview, and a stock-gap badge', () => {
     const enquiryEntry = {
       id: 'e2', entry_number: 2, tenant_id: 't1', buyer_id: 'b2', buyer_name: 'Phani Krishna Yukti',
       buyer_phone: null, location_id: null, entry_type: 'new_enquiry', status: 'new',
@@ -156,6 +209,6 @@ describe('InboxListClient', () => {
     renderWithClient(<InboxListClient />);
     expect(screen.getByText('EST-2026-0005')).toBeInTheDocument();
     expect(screen.getByText('₹13,570 · 2 items · Gate Valve 150mm +1 more')).toBeInTheDocument();
-    expect(screen.getByText('At risk')).toBeInTheDocument();
+    expect(screen.getByText('Stock gap')).toBeInTheDocument();
   });
 });

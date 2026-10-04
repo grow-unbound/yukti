@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Bot, Mail, MessageCircle, Phone, Smartphone, UserRound, Workflow } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,7 +10,8 @@ import { PageHeader } from '@/components/seller/layout/PageHeader';
 import { PageWrap } from '@/components/seller/layout/PageWrap';
 import { StickyListHeader } from '@/components/seller/layout/StickyListHeader';
 import { SellerMobileList, SellerMobileListSkeleton, type SellerMobileListItem } from '@/components/seller/mobile/SellerMobileList';
-import { useEnquiryTriageByIds, useInboxEntries } from '@/hooks/useInboxEntries';
+import { useApplyGenericEntryAction, useEnquiryTriageByIds, useInboxEntries } from '@/hooks/useInboxEntries';
+import { useAuth } from '@/contexts/AuthContext';
 import { useInfiniteScroll, getSentinelInsertIndex } from '@/hooks/useInfiniteScroll';
 import { SELLER_INFINITE_SCROLL_RATIO } from '@/lib/seller-ui';
 import { groupEntriesByDateAndCustomer } from '@/lib/inbox/inbox-grouping';
@@ -52,6 +53,8 @@ function buyerListItem(
   buyer: InboxGroupedBuyer,
   activeId: string | undefined,
   enquiryByEntryId: Map<string, EnquiryTriagePayload>,
+  reviewedEntryIds: Set<string>,
+  onReviewBuyer: (buyer: InboxGroupedBuyer) => void,
 ): SellerMobileListItem {
   // entries is ordered pinned-first, then newest -- entries[0] is what the row's
   // summary should describe, same "primary entry" convention buildListSupportingLine
@@ -59,6 +62,7 @@ function buyerListItem(
   const primary = buyer.entries[0];
   const enquiry = primary?.entry_type === 'new_enquiry' ? enquiryByEntryId.get(primary.id) : undefined;
   const atRisk = enquiry ? enquiryHasAtRiskLine(enquiry.lines) : false;
+  const hasUnreadNewEntry = buyer.entries.some((entry) => entry.status === 'new' && !reviewedEntryIds.has(entry.id));
 
   return {
     id: buyer.buyerKey,
@@ -69,22 +73,33 @@ function buyerListItem(
     supporting: enquiry ? buildEnquiryPreviewLine(enquiry.lines, enquiry.totalAmount) : buildListSupportingLine(buyer.entries),
     trailing: buyer.totalCount > 1 ? <CountChip>{buyer.totalCount}</CountChip> : undefined,
     status: atRisk
-      ? { label: 'At risk', tone: 'danger' }
+      ? { label: 'Stock gap', tone: 'warning' }
       : primary?.entry_type === 'business_approval'
         ? { label: 'Business', tone: 'info' }
         : undefined,
-    badge: buyer.entries.some((entry) => entry.status === 'new') ? 'new' : undefined,
+    badge: hasUnreadNewEntry ? 'new' : undefined,
     selected: activeId === buyer.buyerId || activeId === buyer.buyerKey,
-    onClick: () => writeClientCookie(TODAY_LAST_OPENED_COOKIE, buyer.buyerKey),
+    onClick: () => {
+      writeClientCookie(TODAY_LAST_OPENED_COOKIE, buyer.buyerKey);
+      onReviewBuyer(buyer);
+    },
   };
 }
 
 export function InboxListClient() {
   const params = useParams<{ id?: string }>();
+  const { tenantProfile } = useAuth();
   const [tab, setTab] = useState<'active' | 'resolved'>('active');
   const [activeChip, setActiveChip] = useState<string | null>(null);
+  const [reviewedEntryIds, setReviewedEntryIds] = useState<Set<string>>(() => new Set());
+  const markOpen = useApplyGenericEntryAction();
+  const isSellerAssistant = tenantProfile?.role === 'seller_assistant';
+  const visibleFilterChips = useMemo(
+    () => FILTER_CHIPS.filter((chip) => !(isSellerAssistant && chip.label === 'Approvals')),
+    [isSellerAssistant],
+  );
 
-  const chipTypes = activeChip ? FILTER_CHIPS.find((c) => c.label === activeChip)?.types : undefined;
+  const chipTypes = activeChip ? visibleFilterChips.find((c) => c.label === activeChip)?.types : undefined;
   const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInboxEntries(tab, chipTypes);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -95,11 +110,11 @@ export function InboxListClient() {
   const totalCount = allEntries.length;
   const chipCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const chip of FILTER_CHIPS) {
+    for (const chip of visibleFilterChips) {
       counts[chip.label] = allEntries.filter((e) => chip.types.includes(e.entry_type)).length;
     }
     return counts;
-  }, [allEntries]);
+  }, [allEntries, visibleFilterChips]);
 
   const sections = useMemo(
     () => groupEntriesByDateAndCustomer(data?.entries ?? []),
@@ -130,6 +145,31 @@ export function InboxListClient() {
   );
   const enquiryByEntryId = useEnquiryTriageByIds(primaryEnquiryEntryIds);
 
+  const reviewBuyer = useCallback(
+    (buyer: InboxGroupedBuyer) => {
+      const newEntryIds = buyer.entries.filter((entry) => entry.status === 'new').map((entry) => entry.id);
+      if (newEntryIds.length > 0) {
+        setReviewedEntryIds((prev) => {
+          const next = new Set(prev);
+          newEntryIds.forEach((entryId) => next.add(entryId));
+          return next;
+        });
+      }
+      for (const entry of buyer.entries) {
+        if (entry.status === 'new') {
+          markOpen.mutate({ entryId: entry.id, action: 'open' });
+        }
+      }
+    },
+    [markOpen],
+  );
+
+  useEffect(() => {
+    if (activeChip && !visibleFilterChips.some((chip) => chip.label === activeChip)) {
+      setActiveChip(null);
+    }
+  }, [activeChip, visibleFilterChips]);
+
   // Lets the server-side /today default-buyer redirect know the real viewport
   // (it otherwise only has the user-agent) so a narrowed desktop window stays on the list.
   useEffect(() => {
@@ -148,7 +188,9 @@ export function InboxListClient() {
           title={tab === 'active' ? `${totalCount}${countSuffix} need${totalCount === 1 && !countSuffix ? 's' : ''} your attention` : 'Resolved'}
           subtitle={
             tab === 'active'
-              ? 'Approvals, enquiries, orders and collections waiting on you'
+              ? isSellerAssistant
+                ? 'Enquiries, orders and collections waiting on you'
+                : 'Approvals, enquiries, orders and collections waiting on you'
               : 'Items you have already handled'
           }
           horizon=""
@@ -161,7 +203,7 @@ export function InboxListClient() {
           </TabsList>
         </Tabs>
         <div className="flex flex-wrap gap-2 py-4">
-          {FILTER_CHIPS.map((chip) => (
+          {visibleFilterChips.map((chip) => (
             <button
               key={chip.label}
               type="button"
@@ -205,7 +247,7 @@ export function InboxListClient() {
                 <SellerMobileList
                   forceVisible
                   density="roomy"
-                  items={buyers.map((buyer) => buyerListItem(buyer, params.id, enquiryByEntryId))}
+                  items={buyers.map((buyer) => buyerListItem(buyer, params.id, enquiryByEntryId, reviewedEntryIds, reviewBuyer))}
                   sentinelIndex={localSentinel >= 0 && localSentinel < buyers.length ? localSentinel : undefined}
                   sentinelRef={sentinelRef}
                 />

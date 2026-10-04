@@ -78,7 +78,7 @@ export function useBuyerOutstandingInvoices(buyerId: string | null) {
 
 interface GenericActionInput {
   entryId: string;
-  action: 'remind_later' | 'add_note' | 'dismiss' | 'reopen';
+  action: 'open' | 'remind_later' | 'add_note' | 'dismiss' | 'reopen';
   note?: string;
   remind_at?: string;
 }
