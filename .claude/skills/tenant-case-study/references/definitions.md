@@ -27,4 +27,9 @@ Statuses seen: draft, sent, accepted, invoiced, expired, declined, void. Buyer-a
 ## Pulse (`/pulse`) vs this skill — verified 2026-10-07 on one live tenant
 - `/pulse` Contribution cards call `app.get_landing_metrics_v4(page 'buyer_app', period 'this_quarter')` → `metrics_landing_kpi_snapshot`. Demand and access cards read `metrics_tenant_period_summary` / `metrics_tenant_now_summary`; the invoiced-sales card reads raw `invoices` directly (`is_buyer_app_invoice`, GMV statuses, `invoice_date`). Period summaries are written from raw tables by `_metrics_v4_refresh_claimed_periods` (15-min cron `metrics-refresh-tick`), so they are derived from raw, not from other aggregates.
 - Closed months match raw exactly (counts, ₹, buyers). The current period lags raw by up to one refresh (~15 min).
-- Gaps: no engagement metrics in `metrics_*`; the invoiced tile only sees invoices created by the in-app flow (flag exists from the first in-app invoice onward); `now_summary.active_buyer_count` = master-active buyers; demand buyer count adds estimate-buyers + order-buyers; `metrics_tenant_daily` is a stale v2 table.
+- Gaps found 2026-10-07, addressed on branch `pulse-gaps-1-5` (check the deployed migrations before relying on this):
+  - Invoiced tile undercounted pre-27-Sep conversions -> estimate-led tenants now read converted buyer-app estimates (`app_estimate_converted_*`, status invoiced/converted, estimate-date cohort); order-led tenants keep the invoice flag.
+  - No engagement aggregates -> `app.engagement_{tenant,buyer,product}_daily`, synced daily 03:30 IST from PostHog (edge function `posthog-engagement-sync`); DAU/WAU/MAU/new/returning/funnel/bounce are stored per IST day.
+  - `active_buyer_count` was all buyers -> `total_buyer_count` (all) + `active_buyer_7d/30d/90d_count` from `buyers.last_active_at`; `active_buyer_count` now = 30-day active.
+  - Demand double count -> app demand follows the tenant primary demand kind only (never estimates + orders).
+  - `metrics_tenant_daily` / `metrics_location_daily` were stale (no writers) but still read by `/api/tenant/buyer-app`; dashboard repointed, tables pending explicit drop approval.

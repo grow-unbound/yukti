@@ -459,11 +459,15 @@ export function landingMetricsToPulseContribution(metrics: SellerDashboardMetric
       value_kind: 'currency',
       document_count: invoiced.document_count ?? null,
       buyer_count: invoiced.entity_count ?? null,
+      // Estimate-led tenants: value is converted Yukti quotes and the denominator is captured demand, so the
+      // share is a conversion rate, not a share of total sales; the evidence line says so.
       share_pct: invoiced.secondary_value && Number(invoiced.secondary_value) > 0
         ? Number(((Number(invoiced.value ?? 0) / Number(invoiced.secondary_value)) * 100).toFixed(1))
         : null,
       time_basis: invoiced.time_basis || timeBasis,
-      evidence: `${Number(invoiced.document_count ?? 0)} Yukti-attributed invoice${Number(invoiced.document_count ?? 0) === 1 ? '' : 's'} from ${Number(invoiced.entity_count ?? 0)} buyer${Number(invoiced.entity_count ?? 0) === 1 ? '' : 's'}`,
+      evidence: invoiced.filter_preset?.basis === 'estimates_converted'
+        ? `${Number(invoiced.document_count ?? 0)} Yukti quote${Number(invoiced.document_count ?? 0) === 1 ? '' : 's'} converted to invoices from ${Number(invoiced.entity_count ?? 0)} buyer${Number(invoiced.entity_count ?? 0) === 1 ? '' : 's'} (share = of captured demand)`
+        : `${Number(invoiced.document_count ?? 0)} Yukti-attributed invoice${Number(invoiced.document_count ?? 0) === 1 ? '' : 's'} from ${Number(invoiced.entity_count ?? 0)} buyer${Number(invoiced.entity_count ?? 0) === 1 ? '' : 's'}`,
     } : null,
     demand && Number(demand.entity_count ?? 0) > 0 ? {
       id: 'active_yukti_buyers',
