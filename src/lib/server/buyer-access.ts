@@ -782,6 +782,10 @@ export async function mintBuyerHandoffLink(
     throw new Error(error?.message ?? 'Failed to generate storefront handoff link');
   }
 
+  // Most storefront logins take this cross-origin handoff path, which previously never stamped the
+  // login (only mintBuyerSession did), leaving last_login_at null for nearly every buyer.
+  stampBuyerLastLogin(candidate.buyer_id, 'mintBuyerHandoffLink');
+
   return { hashedToken: data.properties.hashed_token, buyerId: candidate.buyer_id };
 }
 
@@ -992,21 +996,29 @@ export async function mintBuyerSession(
     otpVerifiedPhone,
   );
 
-  if (supabaseAdmin && candidate.buyer_id) {
-    void supabaseAdmin
-      .schema('app')
-      .from('buyers')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', candidate.buyer_id)
-      .then(({ error }) => {
-        if (error) console.error('[mintBuyerSession] failed to stamp last_login_at', error);
-      });
-  }
+  stampBuyerLastLogin(candidate.buyer_id, 'mintBuyerSession');
 
   return {
     session,
     user: principal.user,
   };
+}
+
+/**
+ * Fire-and-forget login stamp. last_active_at moves with it because a login is activity; the daily
+ * PostHog sync later raises last_active_at with browsing/cart/quote events (never lowers either).
+ */
+function stampBuyerLastLogin(buyerId: string | null | undefined, source: string): void {
+  if (!supabaseAdmin || !buyerId) return;
+  const now = new Date().toISOString();
+  void supabaseAdmin
+    .schema('app')
+    .from('buyers')
+    .update({ last_login_at: now, last_active_at: now })
+    .eq('id', buyerId)
+    .then(({ error }) => {
+      if (error) console.error(`[${source}] failed to stamp last_login_at`, error);
+    });
 }
 
 const RESUBMISSION_OTP_FRESHNESS_MS = 15 * 60 * 1000;

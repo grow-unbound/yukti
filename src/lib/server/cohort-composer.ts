@@ -357,11 +357,11 @@ export async function getCohortComposerPayload(db: DbClient, tenantId: string): 
       .eq('grain', 'quarter')
       .eq('period_start', currentQuarterStart)
       .is('deleted_at', null),
-    // metrics_tenant_now_summary (v4): accurate active buyer total for facets.
+    // metrics_tenant_now_summary (v4): total (non-deleted) buyer count for facets.
     db
       .schema('app')
       .from('metrics_tenant_now_summary')
-      .select('active_buyer_count')
+      .select('total_buyer_count')
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .maybeSingle(),
@@ -462,8 +462,8 @@ export async function getCohortComposerPayload(db: DbClient, tenantId: string): 
 
   // Accurate facet counts from full dataset (v4 now-summary rows, no 100-buyer cap)
   if (tenantNowRes.error) throw tenantNowRes.error;
-  const tenantNow = tenantNowRes.data as { active_buyer_count: number | null } | null;
-  const totalBuyerCount = Number(tenantNow?.active_buyer_count ?? nowRows.length);
+  const tenantNow = tenantNowRes.data as { total_buyer_count: number | null } | null;
+  const totalBuyerCount = Number(tenantNow?.total_buyer_count ?? nowRows.length);
 
   // last_order_bucket counts: now sourced from metrics_buyer_now_summary.last_invoice_date.
   const lastOrderBuckets = COHORT_LAST_ORDER_BUCKETS.map((bucket) => ({
