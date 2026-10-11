@@ -17,9 +17,56 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null;
 }
 
+type VelocitySnapshot = {
+  invoice_units_90d: number;
+  days_cover: number | null;
+  last_invoice_at: string | null;
+};
+
+/**
+ * ~90-day invoiced units + last invoice per product via `app.get_product_velocity_90d`
+ * (product period summary, month buckets). Days of cover is derived here from the location
+ * availability the caller already loaded: available / (units per day). A failure degrades to "no
+ * velocity" for the enquiry panel rather than failing the triage payload.
+ */
+async function loadProductVelocity(
+  d: DbClient,
+  tenantId: string,
+  productIds: string[],
+  availableByProduct: Map<string, number>,
+): Promise<Map<string, VelocitySnapshot>> {
+  const out = new Map<string, VelocitySnapshot>();
+  if (productIds.length === 0) return out;
+
+  const { data, error } = await d.schema('app').rpc('get_product_velocity_90d', {
+    p_tenant_id: tenantId,
+    p_product_ids: productIds,
+  });
+  if (error) {
+    console.error('[load-enquiry-triage] get_product_velocity_90d', error);
+    return out;
+  }
+
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const id = asString(row.tenant_product_id);
+    if (!id) continue;
+    const units = Number(row.invoice_units_90d ?? 0);
+    const unitsPerDay = Number.isFinite(units) && units > 0 ? units / 90 : 0;
+    const available = availableByProduct.get(id);
+    out.set(id, {
+      invoice_units_90d: Number.isFinite(units) ? units : 0,
+      days_cover: unitsPerDay > 0 && available !== undefined && Number.isFinite(available)
+        ? Math.round(Math.max(0, available) / unitsPerDay)
+        : null,
+      last_invoice_at: asString(row.last_invoice_at),
+    });
+  }
+  return out;
+}
+
 /**
  * Read-only triage view of a `new_enquiry` estimate: lines with stock, precomputed
- * 90-day velocity (`app.metrics_product_snapshot`) and same-category alternates for
+ * ~90-day velocity (`app.get_product_velocity_90d`) and same-category alternates for
  * lines that can't be covered. Caller has already verified tenant + location access.
  */
 export async function loadEnquiryTriage(
@@ -55,23 +102,18 @@ export async function loadEnquiryTriage(
   const productIds = Array.from(new Set(items.map((i) => asString(i.tenant_product_id)).filter((v): v is string => !!v)));
   const locationId = asString(estimate.location_id);
 
-  const [productsRes, inventory, snapshotRes] = await Promise.all([
+  const [productsRes, inventory] = await Promise.all([
     productIds.length
       ? d.schema('app').from('tenant_products')
           .select('id, internal_sku, name_override, master_product_id, tenant_brand_id, tenant_category_id')
           .in('id', productIds).eq('tenant_id', tenantId)
       : Promise.resolve({ data: [] }),
     loadInventoryAvailabilityMap(d, productIds, locationId),
-    productIds.length
-      ? d.schema('app').from('metrics_product_snapshot')
-          .select('tenant_product_id, invoice_units_90d, days_cover, last_invoice_at')
-          .eq('tenant_id', tenantId).in('tenant_product_id', productIds).is('deleted_at', null)
-      : Promise.resolve({ data: [] }),
   ]);
+  const snapshotMap = await loadProductVelocity(d, tenantId, productIds, inventory);
 
   const products = (productsRes.data ?? []) as Array<Record<string, unknown>>;
   const productMap = new Map(products.map((p) => [p.id as string, p]));
-  const snapshotMap = new Map(((snapshotRes.data ?? []) as Array<Record<string, unknown>>).map((s) => [s.tenant_product_id as string, s]));
 
   // Alternates only for lines that need them.
   const needsAlt = items.filter((i) => {
@@ -113,15 +155,8 @@ export async function loadEnquiryTriage(
   }
 
   const poolIds = poolRows.map((r) => r.id as string);
-  const [poolInventory, poolSnapshotRes] = await Promise.all([
-    loadInventoryAvailabilityMap(d, poolIds, locationId),
-    poolIds.length
-      ? d.schema('app').from('metrics_product_snapshot')
-          .select('tenant_product_id, invoice_units_90d, days_cover, last_invoice_at')
-          .eq('tenant_id', tenantId).in('tenant_product_id', poolIds).is('deleted_at', null)
-      : Promise.resolve({ data: [] }),
-  ]);
-  const poolSnapshotMap = new Map(((poolSnapshotRes.data ?? []) as Array<Record<string, unknown>>).map((s) => [s.tenant_product_id as string, s]));
+  const poolInventory = await loadInventoryAvailabilityMap(d, poolIds, locationId);
+  const poolSnapshotMap = await loadProductVelocity(d, tenantId, poolIds, poolInventory);
 
   const masterIds = Array.from(new Set(nameSources.map((p) => asString(p.master_product_id)).filter((v): v is string => !!v)));
   const brandIds = Array.from(new Set(nameSources.map((p) => asString(p.tenant_brand_id)).filter((v): v is string => !!v)));
