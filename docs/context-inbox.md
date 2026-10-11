@@ -33,6 +33,24 @@ Item format:
 - why: cost two queries + a stash run to establish; prod entries are user-visible noise until the migration is applied (needs explicit prod authorization).
 - cost: ~3 lines MEMORY index + one memory file; on-demand
 
+### 2026-10-11 fix/campaign-visibility-detail-rpc-velocity — campaign price vs resolve_price: where the override lives and why browse and estimate disagreed
+- [ ] target: MEMORY.md (project)   change: add
+- text: `Campaign pricing (found 2026-10-11): app.resolve_price / resolve_prices_batch know nothing about campaigns. The campaign price is campaign_items.price_override, layered in the app (enrichBuyerProducts, buyer-assemble-catalog-items, checkout resolveAuthoritativePrices) only for campaigns returned by getVisibleBuyerCatalogs, which for cohort scope needs an OPEN cohort_members row. Membership lands via the dirty-work tick (up to 15 min), so a newly enabled buyer saw General in browse but Error on the estimate. inferCampaignIdForBuyerCart trusts a client campaign_id (share links are audience-open). Fix: app.flush_buyer_membership called from getVisibleBuyerCatalogs. Campaign 2b589a49 (tenant d601c35c) is cohort-scoped to 118f6a96, price list Error; cohort->price-list assignment is deliberately NOT used.`
+- why: three sessions of tracing (resolve_price, cohort refresh crons, estimates) to establish; estimates with campaign products but NULL campaign_id timestamped 1-7 min before the buyer's cohort_members.valid_from were the proof.
+- cost: ~3 lines MEMORY index + one memory file; on-demand
+
+### 2026-10-11 fix/campaign-visibility-detail-rpc-velocity — never send id lists through PostgREST GET filters
+- [ ] target: .claude/rules/data-fetching.md (Query construction)   change: add
+- text: `Never put an unbounded id list in a GET .in() filter: the request URL limit (~16 KB, about 400 uuids) returns HTTP 400, and any read of a possibly >1000-row set is silently truncated by PostgREST. Resolve membership server-side (join/RPC taking the parent id) or pass ids in an RPC body; return a single jsonb scalar with an explicit cap and a truncated flag, and fail loudly on truncated.`
+- why: app/api/tenant/catalogs/[id]/route.ts sent 459 product + 562 estimate uuids -> 400 on /rest/v1/estimate_items, campaign detail page dead for the live campaign; same class already noted in a comment in that route for buyers.
+- cost: 3 lines, path-scoped (loads when data-fetching files are read)
+
+### 2026-10-11 fix/campaign-visibility-detail-rpc-velocity — plpgsql behaviour tests on dev without a persistent push
+- [ ] target: .claude/rules/supabase-sql.md (Working against yukti-dev)   change: add
+- text: `To exercise a new function without a persistent push: one execute_sql call to yukti-dev = BEGIN; CREATE OR REPLACE FUNCTION ...; DO $$ ... RAISE EXCEPTION 'RESULT %', jsonb_result::text; END $$; — the result comes back in the error text and the whole call rolls back. Dev only: DO blocks are writes under the prod read rules.`
+- why: gave real plpgsql execution (ambiguity, casts, kill switch, failure/backoff paths) for 3 RPCs in 5 calls with zero residue (verified: no leftover functions/rows); static contract tests alone had missed that the review needed it.
+- cost: 2 lines, path-scoped
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)

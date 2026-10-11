@@ -275,7 +275,7 @@ describe('getVisibleBuyerCatalogs', () => {
             };
           }
 
-          if (tableName === 'cohort_members') {
+          if (tableName === 'cohort_members_active') {
             return {
               select: vi.fn(() => ({
                 eq: vi.fn(async () => ({
