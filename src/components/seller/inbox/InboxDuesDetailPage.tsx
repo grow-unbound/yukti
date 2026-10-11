@@ -10,7 +10,7 @@ import { InboxEntryScreenSkeleton } from './InboxDetailSkeleton';
 import { InboxEntryHeading } from './InboxEntryHeading';
 import { InboxEntryFrame } from './InboxEntryFrame';
 
-/** Mobile full-screen dues screen (`/today/[buyerId]/dues`): invoices in the body, actions pinned in the footer. */
+/** Mobile full-screen dues screen (`/inbox/[buyerId]/dues`): invoices in the body, actions pinned in the footer. */
 export function InboxDuesDetailPage({ buyerId }: { buyerId: string }) {
   const { data, isLoading } = useInboxEntries('active');
   const { overrides, localEvents } = useLocalEntryActions();

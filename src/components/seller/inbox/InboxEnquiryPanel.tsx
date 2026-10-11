@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { ChevronDown, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEnquiryTriage, useSubstituteEnquiryLine } from '@/hooks/useInboxEntries';
@@ -9,12 +9,63 @@ import { useEstimateComposer } from '@/hooks/useEstimates';
 import type { EnquiryTriageLine } from '@/lib/inbox/enquiry-triage';
 import { buildTargetRangeLabel } from '@/lib/inbox/inbox-entry-copy';
 import { cn, formatNumberValue } from '@/lib/utils';
-import { StockCell, VelocityCell, velocityLabel } from './EnquiryLineDisplay';
+import { velocityLabel } from './EnquiryLineDisplay';
 
 const HEAD_CLASS = 'text-sm font-medium uppercase tracking-[0.08em] text-cream-500';
 
 function money(value: number) {
   return formatNumberValue(value, 'CURRENCY_EXACT');
+}
+
+function hasVelocitySignal(velocity: EnquiryTriageLine['velocity']): boolean {
+  return velocity.unitsPerWeek > 0 || velocity.daysCover != null || velocity.lastInvoiceAt != null;
+}
+
+function quotedPriceLabel(line: EnquiryTriageLine) {
+  return line.unitPrice != null && line.unitPrice > 0 ? money(line.unitPrice) : '-';
+}
+
+function resolvedPriceLabel(line: EnquiryTriageLine) {
+  return line.resolvedPrice != null && line.resolvedPrice > 0 ? money(line.resolvedPrice) : '-';
+}
+
+function expectedPriceLabel(line: EnquiryTriageLine) {
+  return buildTargetRangeLabel(line.targetMin, line.targetMax) ?? '-';
+}
+
+function lineAmountLabel(line: EnquiryTriageLine, showTargetPricing: boolean) {
+  if (showTargetPricing) {
+    return line.unitPrice != null && line.unitPrice > 0 ? money(line.unitPrice * line.qty) : '-';
+  }
+  return line.resolvedPrice != null && line.resolvedPrice > 0 ? money(line.resolvedPrice * line.qty) : '-';
+}
+
+function desktopLineSubtext(line: EnquiryTriageLine) {
+  const parts = [
+    line.sku,
+    line.resolvedPrice != null ? `Base Price ${money(line.resolvedPrice)}` : null,
+    `Stock ${line.onHand}`,
+    hasVelocitySignal(line.velocity) ? velocityLabel(line.velocity) : null,
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function mobilePriceBasisLabel(line: EnquiryTriageLine, showTargetPricing: boolean) {
+  if (!showTargetPricing) return resolvedPriceLabel(line);
+  return line.resolvedPrice != null && line.resolvedPrice > 0 ? money(line.resolvedPrice) : quotedPriceLabel(line);
+}
+
+function ProductThumb({ src, name }: { src: string | null; name: string }) {
+  const [imgError, setImgError] = useState(false);
+  return (
+    <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-cream-200 bg-cream-100 md:h-10 md:w-10 md:rounded-[12px]">
+      {src && !imgError ? (
+        <Image src={src} alt={name} fill className="object-cover" sizes="56px" unoptimized onError={() => setImgError(true)} />
+      ) : (
+        <Package className="h-5 w-5 text-cream-400" />
+      )}
+    </div>
+  );
 }
 
 function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine; estimateId: string; entryId: string }) {
@@ -36,7 +87,7 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
   return (
     <div className="border-t border-cream-200 bg-cream-50 px-4 py-4">
       <p className="text-base text-cream-700">
-        Buyer asked for {line.qty}; {line.onHand} available.
+        Buyer asked for {line.qty}; {line.stock.label.toLowerCase()}.
         {line.alternates.length > 0
           ? ' In-stock alternatives, same category first — substituting updates this line in place:'
           : ' No in-stock alternatives found in this category or brand.'}
@@ -63,7 +114,9 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
                     {alt.buyerPrice != null ? money(alt.buyerPrice) : '—'}
                   </span>
                   <span className="font-mono text-base tabular-nums text-cream-800">{alt.available} in stock</span>
-                  <span className="hidden font-mono text-sm tabular-nums text-cream-500 sm:inline">{velocityLabel(alt.velocity)}</span>
+                  {hasVelocitySignal(alt.velocity) ? (
+                    <span className="hidden font-mono text-sm tabular-nums text-cream-500 sm:inline">{velocityLabel(alt.velocity)}</span>
+                  ) : null}
                   <button
                     type="button"
                     disabled={substitute.isPending}
@@ -82,83 +135,181 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
   );
 }
 
-function ReadOnlyLineCard({ line, imageUrl, estimateId, entryId }: { line: EnquiryTriageLine; imageUrl: string | null; estimateId: string; entryId: string }) {
-  const [altsOpen, setAltsOpen] = useState(false);
-  const [imgError, setImgError] = useState(false);
+function MobileLineCard({
+  line,
+  imageUrl,
+  estimateId,
+  entryId,
+  showTargetPricing,
+}: {
+  line: EnquiryTriageLine;
+  imageUrl: string | null;
+  estimateId: string;
+  entryId: string;
+  showTargetPricing: boolean;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const short = line.stock.tone !== 'ok';
-  const targetLabel = buildTargetRangeLabel(line.targetMin, line.targetMax);
-  const altLabel = line.alternates.length > 0
-    ? `${line.alternates.length} alternative${line.alternates.length === 1 ? '' : 's'}`
-    : 'No alternatives';
+  const showStockGapControl = short;
+  const priceBasis = mobilePriceBasisLabel(line, showTargetPricing);
 
   return (
-    <div className="overflow-hidden rounded-[14px] border border-cream-200">
-      <div className={cn('px-4 py-4', line.stock.tone === 'danger' && 'doc-line-stock-danger', line.stock.tone === 'warning' && 'doc-line-stock-warning')}>
+    <div className="overflow-hidden rounded-[14px] border border-cream-200 bg-white md:hidden">
+      <div className={cn('px-4 py-4', line.stock.tone === 'danger' && 'border-l-4 border-l-danger-600', line.stock.tone === 'warning' && 'border-l-4 border-l-warning-500')}>
         <div className="flex items-start gap-3">
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-cream-200 bg-cream-100">
-            {imageUrl && !imgError ? (
-              <Image src={imageUrl} alt="" fill className="object-cover" sizes="56px" unoptimized onError={() => setImgError(true)} />
-            ) : (
-              <Package className="h-5 w-5 text-cream-400" />
-            )}
-          </div>
+          <ProductThumb src={imageUrl} name={line.name} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-medium text-cream-900">{line.name}</p>
             <p className="mt-0.5 truncate font-mono text-sm text-cream-500">
-              {line.sku}{line.brandName ? ` · ${line.brandName}` : ''}
+              {line.sku}
             </p>
+            <p className="mt-1 font-mono text-sm tabular-nums text-cream-700">{line.qty} unit x {priceBasis}</p>
+            {line.onHand > 0 ? <p className="mt-0.5 font-mono text-sm tabular-nums text-cream-500">Stock {line.onHand}</p> : null}
             {line.buyerNote ? <p className="mt-1 text-sm italic text-cream-600">&ldquo;{line.buyerNote}&rdquo;</p> : null}
           </div>
-        </div>
-
-        {/* Mobile: 2 cols x 3 rows (target|resolved, qty|quote, stock|sales) so "Your quote"
-            sits under "Resolved price". Desktop: 3 cols -- line 1 target/resolved/quote,
-            line 2 stock/sales/qty. */}
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <div className="order-1">
-            <p className={HEAD_CLASS}>Buyer target</p>
-            <p className="mt-0.5 font-mono text-base text-cream-700">{targetLabel ?? 'None given'}</p>
-          </div>
-          <div className="order-2">
-            <p className={HEAD_CLASS}>Resolved price</p>
-            <p className="mt-0.5 font-mono text-base text-cream-700">{line.resolvedPrice != null ? money(line.resolvedPrice) : '—'}</p>
-          </div>
-          <div className="order-4 sm:order-3">
-            <p className={HEAD_CLASS}>Your quote</p>
-            {line.unitPrice != null && line.unitPrice > 0 ? (
-              <p className="mt-0.5 font-mono text-base font-semibold tabular-nums text-cream-900">{money(line.unitPrice)}</p>
-            ) : (
-              <p className="mt-0.5 text-base text-cream-500">Not quoted yet</p>
-            )}
-          </div>
-          <div className="order-5 sm:order-4">
-            <p className={HEAD_CLASS}>Stock</p>
-            <StockCell stock={line.stock} onHand={line.onHand} align="start" />
-          </div>
-          <div className="order-6 sm:order-5">
-            <p className={HEAD_CLASS}>Recent sales</p>
-            <VelocityCell velocity={line.velocity} align="start" />
-          </div>
-          <div className="order-3 sm:order-6">
-            <p className={HEAD_CLASS}>Buyer quantity</p>
-            <p className="mt-0.5 font-mono text-base font-semibold tabular-nums text-cream-900">{line.qty}</p>
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-base font-semibold tabular-nums text-cream-950">
+              {showTargetPricing ? quotedPriceLabel(line) : resolvedPriceLabel(line)}
+            </p>
+            {showTargetPricing ? (
+              <p className="mt-1 font-mono text-xs tabular-nums text-cream-500">Expected {expectedPriceLabel(line)}</p>
+            ) : null}
           </div>
         </div>
 
-        {short ? (
+        {showStockGapControl ? (
           <button
             type="button"
-            onClick={() => setAltsOpen((v) => !v)}
-            aria-expanded={altsOpen}
-            className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-cream-800 hover:text-cream-950"
+            onClick={() => setDetailsOpen((v) => !v)}
+            aria-expanded={detailsOpen}
+            className="mt-3 inline-flex items-center gap-1 rounded-full border border-warning-200 bg-warning-50 px-3 py-1.5 text-sm font-semibold text-warning-700 transition-colors hover:bg-warning-100"
           >
-            {altLabel}
-            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', altsOpen && 'rotate-180')} aria-hidden />
+            Stock gap: {line.stock.label}
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
           </button>
         ) : null}
       </div>
-      {short && altsOpen ? <AlternatesList line={line} estimateId={estimateId} entryId={entryId} /> : null}
+      {short && detailsOpen ? <AlternatesList line={line} estimateId={estimateId} entryId={entryId} /> : null}
     </div>
+  );
+}
+
+function DesktopLineDetails({
+  line,
+  estimateId,
+  entryId,
+  open,
+  colSpan,
+}: {
+  line: EnquiryTriageLine;
+  estimateId: string;
+  entryId: string;
+  open: boolean;
+  colSpan: number;
+}) {
+  if (!open) return null;
+  const short = line.stock.tone !== 'ok';
+  if (!short) return null;
+  return (
+    <tr>
+      <td colSpan={colSpan} className="border-b border-cream-100 bg-cream-50 px-6 py-4">
+        <AlternatesList line={line} estimateId={estimateId} entryId={entryId} />
+      </td>
+    </tr>
+  );
+}
+
+function DesktopLinesTable({
+  lines,
+  imageById,
+  estimateId,
+  entryId,
+  showTargetPricing,
+}: {
+  lines: EnquiryTriageLine[];
+  imageById: Map<string, string | null>;
+  estimateId: string;
+  entryId: string;
+  showTargetPricing: boolean;
+}) {
+  const [openLineId, setOpenLineId] = useState<string | null>(null);
+  const totalUnits = lines.reduce((sum, line) => sum + line.qty, 0);
+  const colSpan = showTargetPricing ? 6 : 5;
+
+  return (
+    <section className="doc-lines hidden overflow-hidden rounded-[14px] border border-cream-300 bg-white md:block">
+      <div className="border-b border-cream-200 px-4 py-3">
+        <p className="title text-base font-semibold text-cream-950">
+          {lines.length} item{lines.length === 1 ? '' : 's'}. {totalUnits} unit{totalUnits === 1 ? '' : 's'}
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="lines-table w-full table-fixed text-left text-base">
+          <colgroup>
+            <col className="w-[4.25rem]" />
+            <col className={showTargetPricing ? 'w-[38%]' : 'w-[48%]'} />
+            <col className="w-[5.75rem]" />
+            {showTargetPricing ? <col className="w-[7rem]" /> : null}
+            <col className="w-[6.5rem]" />
+            <col className="w-[6.75rem]" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-cream-200 bg-white">
+              <th className="table-label py-2 pl-6 pr-5 text-cream-700">#</th>
+              <th className="table-label px-3 py-2 text-cream-700">Product</th>
+              <th className="table-label num px-2 py-2 text-right text-cream-700">Quantity</th>
+              {showTargetPricing ? (
+                <th className="table-label num px-2 py-2 text-right text-cream-700">Expected</th>
+              ) : null}
+              <th className="table-label num px-2 py-2 text-right text-cream-700">{showTargetPricing ? 'Quote' : 'Price/unit'}</th>
+              <th className="table-label num py-2 pl-2 pr-6 text-right text-cream-700">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((line, index) => {
+              const detailsOpen = openLineId === line.id;
+              const short = line.stock.tone !== 'ok';
+              return (
+                <Fragment key={line.id}>
+                  <tr className={cn('border-b border-cream-50', line.stock.tone === 'danger' && 'doc-line-stock-danger', line.stock.tone === 'warning' && 'doc-line-stock-warning')}>
+                    <td className="py-3 pl-6 pr-5 tabular-nums text-cream-600">{index + 1}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-start gap-3">
+                        <ProductThumb src={imageById.get(line.id) ?? null} name={line.name} />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-cream-900" title={line.name}>{line.name}</p>
+                          <p className="truncate text-xs text-cream-600">{desktopLineSubtext(line)}</p>
+                          {line.buyerNote ? <p className="mt-1 truncate text-xs italic text-cream-600">&ldquo;{line.buyerNote}&rdquo;</p> : null}
+                          {short ? (
+                            <button
+                              type="button"
+                              onClick={() => setOpenLineId((current) => (current === line.id ? null : line.id))}
+                              className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-warning-200 bg-warning-50 px-2.5 py-1 text-xs font-semibold text-warning-700 transition-colors hover:bg-warning-100"
+                            >
+                              Stock gap: {line.stock.label}
+                              <ChevronDown className={cn('h-3 w-3 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="num px-2 py-3 text-right tabular-nums text-cream-900">{line.qty}</td>
+                    {showTargetPricing ? (
+                      <td className="num px-2 py-3 text-right font-mono tabular-nums text-cream-800">{expectedPriceLabel(line)}</td>
+                    ) : null}
+                    <td className="num px-2 py-3 text-right font-mono font-semibold tabular-nums text-cream-900">
+                      {showTargetPricing ? quotedPriceLabel(line) : resolvedPriceLabel(line)}
+                    </td>
+                    <td className="num-display py-3 pl-2 pr-6 text-right font-mono tabular-nums text-cream-900">{lineAmountLabel(line, showTargetPricing)}</td>
+                  </tr>
+                  <DesktopLineDetails line={line} estimateId={estimateId} entryId={entryId} open={detailsOpen} colSpan={colSpan} />
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -183,20 +334,29 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
 
   const imageById = new Map((composer?.items ?? []).map((item) => [item.id, item.image_url ?? null]));
   const hasTotals = composer?.total_amount != null;
+  const showTargetPricing = data.hiddenPricing && data.collectTargetUnitPriceRange;
 
   return (
     <div className="space-y-4">
-      <div className="space-y-3">
+      <div className="space-y-3 md:hidden">
         {data.lines.map((line) => (
-          <ReadOnlyLineCard
+          <MobileLineCard
             key={line.id}
             line={line}
             imageUrl={imageById.get(line.id) ?? null}
             estimateId={data.estimateId}
             entryId={entryId}
+            showTargetPricing={showTargetPricing}
           />
         ))}
       </div>
+      <DesktopLinesTable
+        lines={data.lines}
+        imageById={imageById}
+        estimateId={data.estimateId}
+        entryId={entryId}
+        showTargetPricing={showTargetPricing}
+      />
 
       {hasTotals ? (
         <div className="rounded-[14px] border border-cream-300 bg-cream-50 px-4 py-4">

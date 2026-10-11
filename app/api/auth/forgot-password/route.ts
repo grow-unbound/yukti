@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
+import { sendPasswordRecoveryEmail } from '@/lib/server/email';
+import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
 
 export async function POST(request: NextRequest) {
+  const surfaceError = requireSupplierWorkspaceSurface(request);
+  if (surfaceError) return surfaceError;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -14,15 +19,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Email is required' }, { status: 400 });
   }
 
+  if (!supabaseAdmin) {
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+  }
+
   // Derive the app origin from the incoming request so this works in all envs
   const origin = request.nextUrl.origin;
+  const normalizedEmail = email.trim().toLowerCase();
 
-  // Send password recovery email
-  // The redirectTo URL should match what's configured in Supabase project settings
-  // under Authentication > URL Configuration > Redirect URLs
-  await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-    redirectTo: `${origin}/reset-password`,
+  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+    type: 'recovery',
+    email: normalizedEmail,
+    options: {
+      redirectTo: `${origin}/reset-password`,
+    },
   });
+
+  if (!error && data.properties?.action_link) {
+    await sendPasswordRecoveryEmail({
+      to: normalizedEmail,
+      resetUrl: data.properties.action_link,
+    });
+  }
 
   return NextResponse.json({ success: true });
 }

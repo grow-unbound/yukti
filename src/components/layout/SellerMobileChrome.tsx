@@ -55,7 +55,7 @@ function isTransactionsPath(pathname: string) {
 
 const SELLER_MOBILE_LANDING_PATHS = new Set([
   '/dashboard',
-  '/today',
+  '/inbox',
   '/pulse',
   '/customers',
   SELLER_ROUTES.products.root,
@@ -109,7 +109,7 @@ function getRouteTitle(pathname: string) {
   if (!segment) return 'Seller';
 
   if (action === 'edit') return 'Edit';
-  if (segment === 'today') return 'Today';
+  if (segment === 'inbox' || segment === 'today') return 'Inbox';
   if (segment === 'pulse') return 'Pulse';
   if (segment === 'sales') {
     if (maybeId === 'orders') return 'Orders';
@@ -387,7 +387,7 @@ export function SellerMobileTopbar({
 
 const bottomTabs = [
   { label: 'Home', href: SELLER_ROUTES.pulse, icon: DashboardIcon, adminOnly: true },
-  { label: 'Today', href: SELLER_ROUTES.today, icon: TodayIcon },
+  { label: 'Inbox', href: SELLER_ROUTES.today, icon: TodayIcon },
   { label: 'Search', href: '/search', icon: Search },
   { label: 'Sales', href: SELLER_ROUTES.sales.invoices, icon: ShoppingBag },
   { label: 'Customers', href: '/customers', icon: Users },

@@ -74,6 +74,7 @@ export interface EnquiryTriagePayload {
   estimateNumber: string;
   status: string;
   hiddenPricing: boolean;
+  collectTargetUnitPriceRange: boolean;
   totalAmount: number | null;
   notes: string | null;
   lines: EnquiryTriageLine[];

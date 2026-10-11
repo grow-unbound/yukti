@@ -154,7 +154,7 @@ export function InboxActionBar({ entry, tenantId, historyEvents, localEvents, ap
       if (isDesktop) {
         setQuoteOpen(true);
       } else if (entry.buyer_id) {
-        router.push(`/today/${entry.buyer_id}/${entry.id}/quote`);
+        router.push(`/inbox/${entry.buyer_id}/${entry.id}/quote`);
       }
       return;
     }

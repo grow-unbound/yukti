@@ -1,7 +1,7 @@
 import { formatNumberValue } from '@/lib/utils';
 import type { EnquiryTriageLine } from './enquiry-triage';
 
-/** "₹13,570 · 3 items · Cabernet Sauvignon +2 more" -- the Today list row's preview line for an
+/** "₹13,570 · 3 items · Cabernet Sauvignon +2 more" -- the Inbox list row's preview line for an
  * enquiry. The total is the live estimate total (0 until the seller quotes a hidden-price enquiry). */
 export function buildEnquiryPreviewLine(lines: EnquiryTriageLine[], totalAmount?: number | null): string {
   if (lines.length === 0) return 'No items';

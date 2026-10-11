@@ -9,6 +9,7 @@ import { tenantStorefrontHostForRequest, buildStorefrontHandoffUrl } from '@/lib
 import { isCatalogRequest } from '@/lib/server/catalog-request';
 import { STOREFRONT } from '@/lib/storefront-paths';
 import { getRequestSupabaseClient } from '@/lib/server/request-supabase';
+import { resolveAuthSurfaceFromRequest } from '@/lib/server/auth-surface-server';
 
 async function getCurrentRequestUserId(request: NextRequest): Promise<string | null> {
   const claims = await getVerifiedClaims(request);
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
     const role: string = (body?.role ?? '').trim();
     const returnTo: string | null = body?.return_to?.trim() || null;
     const requestAccess = body?.request_access === true;
+    const surface = resolveAuthSurfaceFromRequest(request).surface;
 
     if (!ref_id || !kind || !tenant_id || !role) {
       return NextResponse.json(
@@ -97,6 +99,13 @@ export async function POST(request: NextRequest) {
     if (!candidate) {
       return NextResponse.json(
         { error: 'Selected account is no longer available. Please log in again.' },
+        { status: 400 },
+      );
+    }
+
+    if ((surface === 'buyer_catalog' || surface === 'tenant_buyer_catalog') && candidate.kind !== 'buyer') {
+      return NextResponse.json(
+        { error: 'Selected account is not available on this login page.' },
         { status: 400 },
       );
     }

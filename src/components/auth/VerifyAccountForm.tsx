@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { OtpForm } from '@/components/buyer/auth/OtpForm';
-import { supabaseBrowser } from '@/lib/supabase-browser';
 
 interface VerifyAccountFormProps {
   email: string;
@@ -20,8 +19,10 @@ function maskEmail(email: string): string {
 }
 
 function formatPhoneDisplay(phone: string): string {
-  // phone is 10 raw digits e.g. "9490744841"
-  return `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`;
+  const trimmed = phone.trim();
+  if (trimmed.startsWith('+')) return trimmed;
+  // Existing tenant data stores Indian phones as 10 raw digits.
+  return `+91 ${trimmed.slice(0, 5)} ${trimmed.slice(5)}`;
 }
 
 export function VerifyAccountForm({ email, phone, userId, tenantId }: VerifyAccountFormProps) {
@@ -71,11 +72,13 @@ export function VerifyAccountForm({ email, phone, userId, tenantId }: VerifyAcco
     setResendMessage('');
     setError('');
     try {
-      const { error: resendError } = await supabaseBrowser.auth.resend({
-        type: 'signup',
-        email,
+      const res = await fetch('/api/auth/verify-account/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, tenant_id: tenantId, email, channel: 'email' }),
       });
-      if (resendError) throw resendError;
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok || !data.success) throw new Error(data.error ?? 'Failed to send');
       setChannel('email');
       setResendMessage('A new code has been sent to your email.');
     } catch {
@@ -140,7 +143,7 @@ export function VerifyAccountForm({ email, phone, userId, tenantId }: VerifyAcco
       />
 
       <div className="pt-2 border-t border-cream-200 space-y-2">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           {phone && (
             <button
               type="button"
@@ -151,6 +154,14 @@ export function VerifyAccountForm({ email, phone, userId, tenantId }: VerifyAcco
               {resendingWhatsapp ? 'Sending…' : whatsappSent ? 'Resend to WhatsApp' : 'Send to WhatsApp'}
             </button>
           )}
+          <button
+            type="button"
+            onClick={handleResendEmail}
+            disabled={resendingEmail}
+            className="text-caption text-ember-400 hover:text-ember-500 font-medium transition-colors disabled:opacity-50"
+          >
+            {resendingEmail ? 'Sending…' : 'Resend to email'}
+          </button>
         </div>
         {channel === 'whatsapp' && (
           <button

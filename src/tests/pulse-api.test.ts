@@ -319,10 +319,10 @@ describe('Pulse API routes', () => {
     expect(redirectMock).toHaveBeenCalledWith('/pulse');
   });
 
-  it('sends assistants from the archived buyer-app page to Today, not Pulse', async () => {
+  it('sends assistants from the archived buyer-app page to Inbox, not Pulse', async () => {
     getSellerServerClaimsMock.mockResolvedValue({ tenant_id: 'tenant-1', role: 'seller_assistant', location_ids: ['loc-1'] });
     await expect(BuyerAppPage()).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirectMock).toHaveBeenCalledWith('/today');
+    expect(redirectMock).toHaveBeenCalledWith('/inbox');
   });
 
   it('preserves the buyer-app access management page', async () => {

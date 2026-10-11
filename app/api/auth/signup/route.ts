@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getFlag } from '@/lib/flags';
 import { getPostHogClient } from '@/lib/posthog-server';
 import { buildSignupTenantSettingsSeed } from '@/lib/tenant-settings/signup-seed';
-import { sendAccountVerificationOtpWhatsapp } from '@/lib/server/account-verification';
+import {
+  sendAccountVerificationOtpEmail,
+  sendAccountVerificationOtpWhatsapp,
+} from '@/lib/server/account-verification';
 import { canonicalStorefrontHost, isReservedStorefrontLabel } from '@/lib/storefront-host';
+import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
 
 const SignupBodySchema = z.object({
   full_name: z.string().min(1).optional(),
@@ -41,6 +44,9 @@ async function deleteAuthUser(userId: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const surfaceError = requireSupplierWorkspaceSurface(request);
+  if (surfaceError) return surfaceError;
+
   // Gate: df_tenant_onboarding must be enabled
   const flagOn = await getFlag('df_tenant_onboarding', 'anonymous-signup');
   if (!flagOn) {
@@ -93,7 +99,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // Step 1 — create auth user without minting a JWT (avoids hook before tenant exists)
   // email_confirm: false so Supabase email is unconfirmed until OTP is verified.
-  // We send the OTP separately via signInWithOtp after tenant creation.
+  // We send the OTP separately after tenant creation.
   const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -187,22 +193,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       otpError = true;
     }
   } else {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseAnonKey) {
-      await deleteAuthUser(userId);
-      return NextResponse.json(
-        { error: 'Server misconfiguration: Supabase credentials missing' },
-        { status: 500 }
-      );
-    }
-    const anonClient = createClient(supabaseUrl, supabaseAnonKey);
-    const { error: emailOtpError } = await anonClient.auth.signInWithOtp({
+    const result = await sendAccountVerificationOtpEmail({
+      user_id: userId,
+      tenant_id: tenantResult.tenant_id,
       email,
-      options: { shouldCreateUser: false },
     });
-    if (emailOtpError) {
-      console.error('Email OTP send failed after signup:', emailOtpError.message);
+    if ('error' in result) {
+      console.error('Email OTP send failed after signup:', result.error);
       otpError = true;
     }
   }

@@ -112,7 +112,7 @@ async function sendTemplateMessage(options: {
   buyerId: string | null;
   triggerSource: 'access_request_received' | 'access_request_resolved';
   /** Dynamic "Review Request" button — only the seller-received templates set this. Deep-links
-   * to `/today/{{1}}`, which InboxDetailClient groups entries by buyer_id, so this must be the
+   * to `/inbox/{{1}}`, which InboxDetailClient groups entries by buyer_id, so this must be the
    * buyer id, not the entry id (buyer_id is always set on these entries — an entry-id value
    * here would never match InboxDetailClient's grouping filter). */
   reviewRequestButtonBuyerId?: string;

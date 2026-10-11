@@ -72,7 +72,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'OPERATIONS',
     items: [
-      { label: 'Today', href: SELLER_ROUTES.today, icon: TodayIcon, roles: [ROLES.SELLER_ADMIN, ROLES.SELLER_ASSISTANT] },
+      { label: 'Inbox', href: SELLER_ROUTES.today, icon: TodayIcon, roles: [ROLES.SELLER_ADMIN, ROLES.SELLER_ASSISTANT] },
       { label: 'Pulse', href: SELLER_ROUTES.pulse, icon: DashboardIcon, roles: [ROLES.SELLER_ADMIN], activeMatch: (pathname) => pathname === '/dashboard' || pathname.startsWith('/pulse') },
       { label: 'Sales', href: SELLER_ROUTES.sales.invoices, icon: SalesOrdersIcon, roles: [ROLES.SELLER_ADMIN, ROLES.SELLER_ASSISTANT], activeMatch: isSalesPath },
       { label: 'Customers', href: '/customers', icon: BuyersIcon, roles: [ROLES.SELLER_ADMIN, ROLES.SELLER_ASSISTANT], flagKey: 'df_customer_master' },
@@ -214,7 +214,7 @@ export function SellerSidebar({
         >
           <item.icon size={17} className={active ? 'text-ember-500' : 'text-[#3D3630]'} />
           {showExpandedContent && item.label}
-          {item.href === '/today' && todayCount && todayCount.count > 0 ? (
+          {item.href === SELLER_ROUTES.today && todayCount && todayCount.count > 0 ? (
             <span
               className={[
                 'ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ember-500 px-1.5 text-[11px] font-semibold text-white',

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { YuktiLogo } from '@/components/brand/YuktiLogo';
+import { AuthHomeLogoLink } from '@/components/auth/AuthHomeLogoLink';
 import { TenantLogo } from '@/components/brand/TenantLogo';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { markLoggedInOnDevice } from '@/lib/auth-device-login';
@@ -65,7 +65,7 @@ function StorefrontHandoffInner({ branding }: { branding: StorefrontHandoffBrand
           {branding ? (
             <TenantLogo name={branding.businessName} logoUrl={branding.logoUrl} size={64} />
           ) : (
-            <YuktiLogo variant="stacked-lockup" className="h-14 w-[76px]" priority />
+            <AuthHomeLogoLink />
           )}
         </div>
         {error ? (

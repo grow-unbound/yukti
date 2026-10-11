@@ -78,7 +78,7 @@ export function useBuyerOutstandingInvoices(buyerId: string | null) {
 
 interface GenericActionInput {
   entryId: string;
-  action: 'remind_later' | 'add_note' | 'dismiss' | 'reopen';
+  action: 'open' | 'remind_later' | 'add_note' | 'dismiss' | 'reopen';
   note?: string;
   remind_at?: string;
 }
@@ -364,7 +364,7 @@ export function useEnquiryTriage(entryId: string, enabled = true) {
 }
 
 /**
- * Batch variant of `useEnquiryTriage` for the Today list row -- one row per
+ * Batch variant of `useEnquiryTriage` for the Inbox list row -- one row per
  * buyer, so enriching a handful of rows (this list is bounded to "today's"
  * open items, not a paginated catalog) with item count / at-risk needs the
  * same triage payload each row's own detail screen will reuse. Shares the

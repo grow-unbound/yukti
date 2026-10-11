@@ -12,7 +12,7 @@ import { InboxEntryFrame } from './InboxEntryFrame';
 import { InboxEntryScreenSkeleton } from './InboxDetailSkeleton';
 
 /**
- * Mobile full-screen route for a single entry (`/today/[buyerId]/[entryId]`).
+ * Mobile full-screen route for a single entry (`/inbox/[buyerId]/[entryId]`).
  * Desktop shows the same content inline via InboxEntryCard -- this is
  * mobile's stacked-navigation counterpart, sharing InboxEntryDetailContent
  * and InboxEntryFrame so the body/footer never diverge from desktop's.

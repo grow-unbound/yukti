@@ -153,6 +153,12 @@
        previous text-body-sm/text-md Tailwind classes exactly). */
     --ctl-text-sm: var(--yk-text-base);
     --ctl-text-md: var(--yk-text-md);
+
+    /* Auth phone country selector */
+    --auth-country-select-w: 5.7rem;
+    --auth-country-menu-w: 18rem;
+    --auth-country-menu-max-h: 18rem;
+    --auth-country-menu-gutter: 1.5rem;
   }
 
 /* ── Buyer-app design override (Yukti "Ember & Cream") ─────────────────

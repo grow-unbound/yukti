@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
 import { getFlag } from '@/lib/flags';
+import { sendSetupPasswordInviteEmail } from '@/lib/server/email';
 
 async function ensureBuyerUser(db: any, tenantId: string, buyerId: string, userId: string) {
   const { data: buyer } = await db
@@ -20,7 +21,7 @@ async function ensureBuyerUser(db: any, tenantId: string, buyerId: string, userI
   const { data, error } = await db
     .schema('app')
     .from('buyer_users')
-    .select('id, buyer_id, email, user_id, deleted_at')
+    .select('id, buyer_id, email, user_id, deleted_at, first_name, last_name')
     .eq('id', userId)
     .eq('buyer_id', buyerId)
     .is('deleted_at', null)
@@ -66,17 +67,53 @@ export async function POST(
     return NextResponse.json({ error: 'Email is required to send an invite.' }, { status: 400 });
   }
 
-  const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(user.email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/setup-password`,
-    data: {
-      tenant_id: claims.tenant_id,
-      buyer_id: id,
-      buyer_user_id: userId,
+  const { data: tenantRow, error: tenantError } = await db
+    .schema('app')
+    .from('tenants')
+    .select('business_name')
+    .eq('id', claims.tenant_id)
+    .maybeSingle();
+
+  if (tenantError || !tenantRow?.business_name) {
+    return NextResponse.json(
+      { error: 'Failed to load tenant details for invite', details: tenantError?.message },
+      { status: 500 },
+    );
+  }
+
+  const setupPasswordUrl = new URL('/setup-password', request.nextUrl.origin).toString();
+  const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.generateLink({
+    type: 'invite',
+    email: user.email,
+    options: {
+      redirectTo: setupPasswordUrl,
+      data: {
+        tenant_id: claims.tenant_id,
+        buyer_id: id,
+        buyer_user_id: userId,
+      },
     },
   });
 
-  if (inviteError) {
-    return NextResponse.json({ error: 'Failed to send invite', details: inviteError.message }, { status: 500 });
+  if (inviteError || !inviteData?.properties?.action_link) {
+    return NextResponse.json(
+      { error: 'Failed to prepare invite', details: inviteError?.message ?? 'Invite link was not generated' },
+      { status: 500 },
+    );
+  }
+
+  try {
+    await sendSetupPasswordInviteEmail({
+      to: user.email,
+      inviteUrl: inviteData.properties.action_link,
+      tenantName: tenantRow.business_name,
+      recipientName: [user.first_name, user.last_name].filter(Boolean).join(' ') || null,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to send invite email', details: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
   }
 
   const { error: updateError } = await db

@@ -10,7 +10,7 @@ import { InboxReplyQuoteBody, useInboxReplyQuoteDraft } from './InboxReplyQuoteV
 import { InboxEntryScreenSkeleton } from './InboxDetailSkeleton';
 
 /**
- * Mobile full-screen route for the quote editor (`/today/[buyerId]/[entryId]/quote`).
+ * Mobile full-screen route for the quote editor (`/inbox/[buyerId]/[entryId]/quote`).
  * The content is rich enough (image, sku, stock, resolved price, two inputs per
  * line, add-item search, totals, notes) that a centered dialog at phone width
  * just re-creates the original cramped-dialog bug -- this gets its own screen
@@ -34,7 +34,7 @@ export function InboxReplyQuoteScreen({ buyerId, entryId }: { buyerId: string; e
 
   async function handleSend() {
     const sent = await draft.sendQuote();
-    if (sent) router.push(`/today/${buyerId}/${entryId}`);
+    if (sent) router.push(`/inbox/${buyerId}/${entryId}`);
   }
 
   return (
@@ -42,7 +42,7 @@ export function InboxReplyQuoteScreen({ buyerId, entryId }: { buyerId: string; e
       variant="stacked"
       footer={
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" className="flex-1" onClick={() => router.push(`/today/${buyerId}/${entryId}`)}>
+          <Button type="button" variant="outline" className="flex-1" onClick={() => router.push(`/inbox/${buyerId}/${entryId}`)}>
             Cancel
           </Button>
           <Button type="button" variant="outline" className="flex-1" onClick={() => draft.saveDraft()} disabled={!draft.canSave || draft.isSaving}>

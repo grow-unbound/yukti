@@ -5,11 +5,15 @@ import { isValidIndianMobile, normalizeIndianPhone } from '@/lib/phone';
 import { buyerOtpStore } from '@/lib/server/buyer-otp-store';
 import { findPendingSellerActivationsByPhone } from '@/lib/server/seller-team-activation';
 import { sendActivationOtpWhatsapp } from '@/lib/server/whatsapp';
+import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   try {
+    const surfaceError = requireSupplierWorkspaceSurface(request);
+    if (surfaceError) return surfaceError;
+
     const payload = await request.json() as { phoneNumber?: string };
     const rawPhone = (payload.phoneNumber ?? '').trim();
 

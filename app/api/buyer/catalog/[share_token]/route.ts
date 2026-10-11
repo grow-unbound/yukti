@@ -4,6 +4,7 @@ import type { BuyerCatalogItem } from '@/types/buyer';
 import { requireBuyerAccessProfile } from '@/lib/server/buyer-access';
 import { recordCampaignView } from '@/lib/server/campaign-engagement';
 import { enrichBuyerProducts } from '@/lib/server/buyer-product-data';
+import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
 import { guardPendingBuyerCatalogAccess } from '@/lib/server/buyer-pending-guard';
 import { getSelectedBuyerDeliveryFromRequest } from '@/lib/server/buyer-location-selection';
 import { resolveNearestBuyerLocation } from '@/lib/server/buyer-routing';
@@ -110,7 +111,7 @@ export async function GET(
         campaign_id: catalog.id,
         campaign_name: catalog.name,
         campaign_valid_until: catalog.valid_to,
-        campaign_price: item.price_override,
+        campaign_price: campaignOverridePrice(item.price_override),
         is_featured: Boolean(item.is_featured),
       }]),
     ),

@@ -110,7 +110,7 @@ export function InboxDetailClient({ buyerId }: { buyerId: string }) {
   return (
     <div className="mx-auto flex h-full w-full max-w-[1920px] flex-col">
       <div className="hidden shrink-0 px-4 py-4 md:block md:px-6 md:py-4">
-        {/* Today has no "closed" state — a customer is always open, so the pane's
+        {/* Inbox has no "closed" state — a customer is always open, so the pane's
             close (X) affordance (rendered automatically by DetailHeader whenever
             SplitPaneCloseContext is present) is suppressed here on purpose. */}
         <SplitPaneCloseContext.Provider value={null}>
@@ -149,7 +149,7 @@ export function InboxDetailClient({ buyerId }: { buyerId: string }) {
                       <button
                         type="button"
                         disabled={!prevBuyerKey}
-                        onClick={() => prevBuyerKey && router.push(`/today/${prevBuyerKey}`)}
+                        onClick={() => prevBuyerKey && router.push(`/inbox/${prevBuyerKey}`)}
                         className="p-2 text-cream-600 hover:bg-cream-100 disabled:opacity-30"
                         aria-label="Previous customer"
                       >
@@ -158,7 +158,7 @@ export function InboxDetailClient({ buyerId }: { buyerId: string }) {
                       <button
                         type="button"
                         disabled={!nextBuyerKey}
-                        onClick={() => nextBuyerKey && router.push(`/today/${nextBuyerKey}`)}
+                        onClick={() => nextBuyerKey && router.push(`/inbox/${nextBuyerKey}`)}
                         className="p-2 text-cream-600 hover:bg-cream-100 disabled:opacity-30"
                         aria-label="Next customer"
                       >
@@ -209,7 +209,7 @@ export function InboxDetailClient({ buyerId }: { buyerId: string }) {
               <section className="overflow-hidden rounded-[14px] border border-cream-300 bg-white">
                 <button
                   type="button"
-                  onClick={() => router.push(`/today/${buyerId}/dues`)}
+                  onClick={() => router.push(`/inbox/${buyerId}/dues`)}
                   className="flex w-full items-start justify-between gap-4 px-6 py-5 text-left"
                 >
                   <div className="min-w-0">
@@ -227,7 +227,7 @@ export function InboxDetailClient({ buyerId }: { buyerId: string }) {
               <InboxEntryListRow
                 key={entry.id}
                 entry={entry}
-                onOpen={() => router.push(`/today/${buyerId}/${entry.id}`)}
+                onOpen={() => router.push(`/inbox/${buyerId}/${entry.id}`)}
               />
             ))}
           </div>

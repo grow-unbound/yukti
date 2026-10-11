@@ -25,6 +25,7 @@ vi.mock('@/lib/server/buyer-otp-store', () => ({
     set: (...args: unknown[]) => setMock(...args),
     delete: (...args: unknown[]) => deleteMock(...args),
   },
+  hashOtp: (otp: string) => `hashed:${otp}`,
 }));
 
 vi.mock('@/lib/server/seller-team-activation', () => ({
@@ -75,6 +76,19 @@ describe('seller reset routes', () => {
     expect(sendResetOtpMock).toHaveBeenCalledWith('9876543210', expect.any(String));
   });
 
+  it('rejects reset OTP sends from buyer surfaces', async () => {
+    const { POST } = await import('../../../app/api/auth/reset/send/route');
+    const response = await POST(new Request('http://catalog.localhost/api/auth/reset/send', {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber: '9876543210' }),
+      headers: { 'Content-Type': 'application/json', host: 'catalog.localhost' },
+    }) as unknown as import('next/server').NextRequest);
+
+    expect(response.status).toBe(403);
+    expect(findResetCandidatesMock).not.toHaveBeenCalled();
+    expect(sendResetOtpMock).not.toHaveBeenCalled();
+  });
+
   it('verifies the reset OTP and returns a temporary session', async () => {
     getMock.mockResolvedValue({
       kind: 'pending',
@@ -116,5 +130,18 @@ describe('seller reset routes', () => {
     expect(body.context.email).toBe('ravi@example.com');
     expect(body.session.access_token).toBe('access-token');
     expect(deleteMock).toHaveBeenCalledWith('ref-123');
+  });
+
+  it('rejects reset OTP verification from buyer surfaces', async () => {
+    const { POST } = await import('../../../app/api/auth/reset/verify/route');
+    const response = await POST(new Request('http://catalog.localhost/api/auth/reset/verify', {
+      method: 'POST',
+      body: JSON.stringify({ ref_id: 'ref-123', otp: '123456' }),
+      headers: { 'Content-Type': 'application/json', host: 'catalog.localhost' },
+    }) as unknown as import('next/server').NextRequest);
+
+    expect(response.status).toBe(403);
+    expect(getMock).not.toHaveBeenCalled();
+    expect(mintResetSessionMock).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@ import type { InboxEntry } from '@/lib/inbox/inbox-types';
 
 /**
  * Mobile-only tappable row -- pushes to the entry's own stacked screen
- * (`/today/[buyerId]/[entryId]`) instead of expanding in place. Desktop keeps
+ * (`/inbox/[buyerId]/[entryId]`) instead of expanding in place. Desktop keeps
  * `InboxEntryCard`'s inline expand; this is its mobile-list counterpart,
  * sharing the same `InboxEntrySummary` so the two surfaces show identical
  * title/meta content.

@@ -293,7 +293,7 @@ async function handleAppHost(
   }
 
   if (pathname === '/' || isLoginPath) {
-    return redirectPreservingPath(request, hostHeader, '/today', 307);
+    return redirectPreservingPath(request, hostHeader, '/inbox', 307);
   }
 
   return finalizeAuthenticated(request, requestHeaders, auth, pathname, {
@@ -331,7 +331,7 @@ async function handleCatalogHost(
 
   const role = sessionRole(auth.claims);
   if (role?.startsWith('seller_')) {
-    return redirectPreservingPath(request, sellerAppHostForRequest(hostHeader), '/today', 307);
+    return redirectPreservingPath(request, sellerAppHostForRequest(hostHeader), '/inbox', 307);
   }
 
   if (isCatalogEntryPath) {

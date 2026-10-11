@@ -69,7 +69,7 @@ describe('Pulse is seller_admin only', () => {
     expect(canAccessPulse('buyer_admin')).toBe(false);
     expect(canAccessPulse(null)).toBe(false);
     expect(sellerHomeRoute('seller_admin')).toBe('/pulse');
-    expect(sellerHomeRoute('seller_assistant')).toBe('/today');
+    expect(sellerHomeRoute('seller_assistant')).toBe('/inbox');
   });
 
   describe.each(apiCalls)('%s API', (_name, call) => {
@@ -95,9 +95,9 @@ describe('Pulse is seller_admin only', () => {
   it('redirects assistants away from the Pulse layout and page without rendering children', async () => {
     getSellerServerClaimsMock.mockResolvedValue(assistant);
     await expect(PulseLayout({ children: 'child' })).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirectMock).toHaveBeenLastCalledWith('/today');
+    expect(redirectMock).toHaveBeenLastCalledWith('/inbox');
     await expect(PulsePage()).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirectMock).toHaveBeenLastCalledWith('/today');
+    expect(redirectMock).toHaveBeenLastCalledWith('/inbox');
   });
 
   it('renders the Pulse layout and page for admins', async () => {
@@ -107,10 +107,10 @@ describe('Pulse is seller_admin only', () => {
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it('lands assistants on Today and admins on Pulse from /dashboard', async () => {
+  it('lands assistants on Inbox and admins on Pulse from /dashboard', async () => {
     getSellerServerClaimsMock.mockResolvedValue(assistant);
     await expect(DashboardRedirectPage()).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirectMock).toHaveBeenLastCalledWith('/today');
+    expect(redirectMock).toHaveBeenLastCalledWith('/inbox');
     getSellerServerClaimsMock.mockResolvedValue(admin);
     await expect(DashboardRedirectPage()).rejects.toThrow('NEXT_REDIRECT');
     expect(redirectMock).toHaveBeenLastCalledWith('/pulse');

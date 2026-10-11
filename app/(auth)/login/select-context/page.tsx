@@ -19,10 +19,10 @@ interface SessionPayload {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  buyer_admin: 'Admin',
-  buyer_assistant: 'Team member',
-  seller_admin: 'Admin',
-  seller_assistant: 'Assistant',
+  buyer_admin: 'Catalog admin',
+  buyer_assistant: 'Catalog team',
+  seller_admin: 'Workspace admin',
+  seller_assistant: 'Workspace assistant',
 };
 
 function roleBadge(role: string) {
@@ -437,8 +437,10 @@ function SelectContextForm() {
         <YuktiLogo variant="stacked-lockup" className="h-14 w-[76px]" priority />
       </div>
 
-      <h1 className="text-h3 font-display text-cream-900 mb-1">{heading}</h1>
-      <p className="text-body-sm text-cream-600 mb-6">{subheading}</p>
+      <h1 className="text-h3 font-display text-cream-900 mb-1">Choose where to continue</h1>
+      <p className="text-body-sm text-cream-600 mb-6">
+        Your number is linked to multiple Supplier workspaces or supplier catalogs. Select one to continue.
+      </p>
 
       <div className="space-y-5">
         {groups.map((group) => (
@@ -480,6 +482,9 @@ function SelectContextForm() {
                         <div className="min-w-0">
                           <p className="text-body-sm font-semibold text-cream-900 truncate">
                             {accountDisplayName(ctx)}
+                          </p>
+                          <p className="text-caption text-cream-500 mt-0.5 truncate">
+                            {ctx.kind === 'seller' ? 'Supplier workspace' : 'Supplier catalog'}
                           </p>
                           {accountSecondaryLine(ctx) && (
                             <p className="text-caption text-cream-600 mt-0.5 truncate">{accountSecondaryLine(ctx)}</p>

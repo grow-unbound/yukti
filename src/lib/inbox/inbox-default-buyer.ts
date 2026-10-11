@@ -22,7 +22,7 @@ export function isDesktopRequest(viewportCookie: string | undefined, userAgent: 
   return !MOBILE_UA.test(userAgent ?? '');
 }
 
-/** The buyer Today should open by default: last opened if still listed, else the top row. */
+/** The buyer Inbox should open by default: last opened if still listed, else the top row. */
 export function pickDefaultBuyerRouteId(entries: InboxEntry[], lastOpenedKey: string | undefined): string | null {
   const buyers = groupEntriesByDateAndCustomer(entries).flatMap((section) => section.buyers);
   if (buyers.length === 0) return null;
