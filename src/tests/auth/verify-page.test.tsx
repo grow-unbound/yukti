@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { VerifyOtpPageClient } from '@/components/auth/VerifyOtpPageClient';
+import { resolveAuthSurface } from '@/lib/auth-surface';
 
 let queryParams = new URLSearchParams();
+const supplierSurface = resolveAuthSurface('app.localhost:3000', 'http:');
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -26,9 +29,7 @@ describe('VerifyPage', () => {
   });
 
   it('shows the login-with-email fallback only in the otp footer', async () => {
-    const VerifyPage = await import('../../../app/(auth)/verify/page').then((mod) => mod.default);
-
-    render(<VerifyPage />);
+    render(<VerifyOtpPageClient initialSurface={supplierSurface} />);
 
     expect(screen.getByRole('link', { name: /Login with Email/i })).toHaveAttribute('href', '/login?view=email');
     expect(screen.getAllByRole('link', { name: /Login with Email/i })).toHaveLength(1);

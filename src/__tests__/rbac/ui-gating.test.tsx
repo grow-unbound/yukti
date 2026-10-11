@@ -45,6 +45,10 @@ vi.mock('@/contexts/TenantContext', () => ({
   useTenant: () => ({ currentTenant: { business_name: 'Test Tenant' } }),
 }));
 
+vi.mock('@/hooks/useInboxEntries', () => ({
+  useInboxActiveCount: () => ({ data: { count: 0 } }),
+}));
+
 function makeAuthValue(role: string) {
   return {
     session: null,
@@ -99,7 +103,7 @@ describe('SellerSidebar nav gating', () => {
       await act(async () => {
         render(<SellerSidebar featureAvailabilityPromise={Promise.resolve(makeFeatures())} />);
       });
-      expect(screen.getByText('Today')).toBeInTheDocument();
+      expect(screen.getByText('Inbox')).toBeInTheDocument();
       expect(screen.queryByText('Pulse')).not.toBeInTheDocument();
       expect(screen.getByText('Sales')).toBeInTheDocument();
       expect(screen.getByText('Customers')).toBeInTheDocument();

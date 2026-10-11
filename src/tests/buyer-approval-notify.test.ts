@@ -121,7 +121,7 @@ describe('buyer-approval-notify', () => {
     )).not.toThrow();
 
     expect(sellerCall.sendPayload.meta_template_name).toBe('access_request_received_seller_business');
-    // "Review Request" deep-links to /today/{buyerId} — InboxDetailClient groups these entries
+    // "Review Request" deep-links to /inbox/{buyerId} — InboxDetailClient groups these entries
     // by buyer_id (always set here), so the button param must be the buyer id, not the entry id.
     expect(sellerCall.sendPayload.button_params).toEqual([{ type: 'url', index: '0', text: 'buyer-1' }]);
     expect(() => assertTemplatePayloadValid(

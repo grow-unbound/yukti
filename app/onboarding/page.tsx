@@ -242,7 +242,7 @@ export default function BuyerOnboardingPage() {
         setSubmitting(false);
         return;
       }
-      window.location.assign('/pending');
+      window.location.assign('/pending?intake_submitted=1');
     } catch {
       setError('Network error. Please check your connection and try again.');
       setSubmitting(false);
@@ -432,7 +432,7 @@ export default function BuyerOnboardingPage() {
           }
           className="w-full text-caption text-cream-600 hover:text-cream-800 transition-colors"
         >
-          Message {sellerName} on WhatsApp instead
+          Contact {sellerName} on WhatsApp
         </button>
       )}
     </form>

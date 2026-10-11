@@ -16,6 +16,7 @@ export default function SetupPasswordPage() {
   const router = useRouter();
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [displayEmail, setDisplayEmail] = useState<string | null>(null);
+  const [accountKind, setAccountKind] = useState<'seller' | 'buyer' | 'unknown'>('unknown');
   const [sessionReady, setSessionReady] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -58,8 +59,17 @@ export default function SetupPasswordPage() {
         || data.user.email
         || null;
       const email = emailFromQuery?.trim() || data.user.email || null;
+      const metadata = data.user.user_metadata ?? {};
+      const appMetadata = data.user.app_metadata ?? {};
+      const isBuyerInvite = typeof metadata.buyer_id === 'string'
+        || typeof metadata.buyer_user_id === 'string'
+        || typeof appMetadata.current_buyer_id === 'string';
+      const isSellerInvite = typeof metadata.role === 'string' && metadata.role.startsWith('seller_')
+        || typeof metadata.tenant_id === 'string'
+        || typeof appMetadata.current_tenant_id === 'string';
       setDisplayName(name);
       setDisplayEmail(email);
+      setAccountKind(isBuyerInvite ? 'buyer' : isSellerInvite ? 'seller' : 'unknown');
       setSessionReady(true);
     };
 
@@ -88,18 +98,20 @@ export default function SetupPasswordPage() {
         return;
       }
 
-      const activateRes = await fetch('/api/auth/accept-invite', { method: 'POST' });
-      if (!activateRes.ok) {
-        const body = (await activateRes.json().catch(() => ({}))) as { error?: string };
-        if (!body.error?.includes('No pending invite')) {
-          setError(body.error ?? 'Could not activate your account. Please contact support.');
-          return;
+      if (accountKind === 'seller') {
+        const activateRes = await fetch('/api/auth/accept-invite', { method: 'POST' });
+        if (!activateRes.ok) {
+          const body = (await activateRes.json().catch(() => ({}))) as { error?: string };
+          if (!body.error?.includes('No pending invite')) {
+            setError(body.error ?? 'Could not activate your account. Please contact support.');
+            return;
+          }
         }
       }
 
       await supabaseBrowser.auth.refreshSession();
       shouldResetLoading = false;
-      router.replace('/dashboard');
+      router.replace(accountKind === 'buyer' ? '/buy/home' : '/dashboard');
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -117,7 +129,11 @@ export default function SetupPasswordPage() {
         Welcome{displayName ? `, ${displayName.split(' ')[0]}` : ' to Yukti'}
       </h1>
       <p className="text-body-sm text-cream-600 mb-6">
-        You&apos;ve been invited to your seller workspace. Create a password to get started. You can login with email when you don&apos;t get OTPs.
+        {accountKind === 'seller'
+          ? 'You\u0027ve been invited to a Supplier workspace. Create a password so you can login with email whenever you need it.'
+          : accountKind === 'buyer'
+            ? 'You\u0027ve been invited by your supplier. Create a password to finish setting up this account.'
+            : 'Create a password to finish setting up your Yukti account.'}
       </p>
 
       {displayEmail ? (
@@ -201,7 +217,7 @@ export default function SetupPasswordPage() {
         <p className="text-caption text-cream-600">
           Already have an account?{' '}
           <Link href="/login" className="text-ember-400 hover:text-ember-500 font-medium transition-colors">
-            Sign in
+            Login
           </Link>
         </p>
       </div>

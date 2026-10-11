@@ -66,7 +66,7 @@ export function DeclinedContactScreen({ sellerName, sellerWhatsappNumber, public
             }
             className="w-full inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-teal-500 hover:bg-teal-600 text-cream-50 text-body-sm font-semibold transition-colors duration-base mb-3"
           >
-            Message {sellerName} on WhatsApp
+            Contact {sellerName} on WhatsApp
           </button>
         )}
 

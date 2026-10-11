@@ -17,7 +17,7 @@ const EMPTY_HEADER: MobileHeader = { title: null, phone: null, owner: null };
 const MobileHeaderTitleContext = createContext<MobileHeaderTitleValue>({ ...EMPTY_HEADER, setHeader: () => {} });
 
 /** Lets a deep mobile screen name itself in the shared top bar (buyer name, entry title...)
- * instead of the bar falling back to the static route-segment title ("Today"). */
+ * instead of the bar falling back to the static route-segment title ("Inbox"). */
 export function MobileHeaderTitleProvider({ children }: { children: ReactNode }) {
   const [header, setHeader] = useState<MobileHeader>(EMPTY_HEADER);
   const value = useMemo(() => ({ ...header, setHeader }), [header]);

@@ -11,8 +11,10 @@ import { OtpForm } from '@/components/buyer/auth/OtpForm';
 import { DocumentUploadField } from '@/components/buyer/onboarding/DocumentUploadField';
 import { OtherAccountsPanel } from '@/components/buyer/onboarding/OtherAccountsPanel';
 import { apiFetch } from '@/lib/api-fetch';
+import { useBuyerMe } from '@/hooks/useBuyerMe';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { markLoggedInOnDevice } from '@/lib/auth-device-login';
+import { buildWhatsAppChatUrl } from '@/constants/auth-login-copy';
 import { MISSING_FIELD_LABELS } from '@/lib/inbox/missing-field-labels';
 
 /**
@@ -93,6 +95,7 @@ function isFlagged(missingFields: string[], key: string): boolean {
 
 export default function ResubmitDocumentsPage() {
   const router = useRouter();
+  const { data: me } = useBuyerMe();
   const [phase, setPhase] = useState<Phase>('checking');
   const [phone, setPhone] = useState('');
   const [refId, setRefId] = useState('');
@@ -117,6 +120,8 @@ export default function ResubmitDocumentsPage() {
   const [gstCertDocId, setGstCertDocId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const sellerName = me?.tenant?.name ?? 'the seller';
+  const sellerWhatsappNumber = me?.pending?.seller_whatsapp_number ?? null;
 
   // Arriving straight from the login OTP (the WhatsApp "Login" link) already carries a fresh,
   // server-stamped OTP claim — don't make the buyer verify twice. The server re-checks freshness
@@ -328,7 +333,7 @@ export default function ResubmitDocumentsPage() {
         setSubmitting(false);
         return;
       }
-      window.location.assign('/pending');
+      window.location.assign('/pending?resubmitted=1');
     } catch {
       setSubmitError('Network error. Please check your connection and try again.');
       setSubmitting(false);
@@ -387,7 +392,7 @@ export default function ResubmitDocumentsPage() {
                 || 'We couldn’t find a document request that needs your attention right now.'}
             </p>
             <Button className="w-full" onClick={() => router.replace('/pending')}>
-              Go to status page
+              Check current access status
             </Button>
           </div>
         )}
@@ -536,6 +541,25 @@ export default function ResubmitDocumentsPage() {
           {/* The phone may match other accounts at this seller: let the buyer continue with one of those instead. */}
           <OtherAccountsPanel tenantId={null} />
           </>
+        )}
+
+        {sellerWhatsappNumber && (
+          <button
+            type="button"
+            onClick={() =>
+              window.open(
+                buildWhatsAppChatUrl(
+                  sellerWhatsappNumber,
+                  `Hi ${sellerName}, I have a question about my Yukti catalog access request.`,
+                ),
+                '_blank',
+                'noopener,noreferrer',
+              )
+            }
+            className="mt-5 w-full inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-teal-500 hover:bg-teal-600 text-cream-50 text-body-sm font-semibold transition-colors duration-base"
+          >
+            Contact {sellerName} on WhatsApp
+          </button>
         )}
       </div>
     </div>

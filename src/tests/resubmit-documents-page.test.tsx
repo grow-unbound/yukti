@@ -5,6 +5,7 @@ const apiFetchMock = vi.fn();
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
 const setSessionMock = vi.fn().mockResolvedValue({});
+const useBuyerMeMock = vi.fn();
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, replace: replaceMock }),
@@ -12,6 +13,10 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/api-fetch', () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}));
+
+vi.mock('@/hooks/useBuyerMe', () => ({
+  useBuyerMe: () => useBuyerMeMock(),
 }));
 
 vi.mock('@/lib/supabase-browser', () => ({
@@ -54,6 +59,15 @@ describe('/resubmit-documents page', () => {
     pushMock.mockReset();
     replaceMock.mockReset();
     setSessionMock.mockClear();
+    useBuyerMeMock.mockReset();
+    useBuyerMeMock.mockReturnValue({
+      data: {
+        mode: 'pending',
+        tenant: { id: 'tenant-1', name: 'VBS Group' },
+        pending: { seller_whatsapp_number: '9876500000' },
+      },
+      isLoading: false,
+    });
 
     apiFetchMock.mockImplementation((url: string) => {
       if (url === '/api/buyer/onboarding/resubmission-profile') {
@@ -195,7 +209,24 @@ describe('/resubmit-documents page', () => {
     fireEvent.click(screen.getByText('Verify OTP'));
 
     expect(await screen.findByText('Nothing to resubmit')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /contact VBS Group on WhatsApp/i })).toBeInTheDocument();
 
     global.fetch = originalFetch;
+  });
+
+  it('shows a WhatsApp contact CTA for buyer questions', async () => {
+    const openMock = vi.fn();
+    vi.spyOn(window, 'open').mockImplementation(openMock);
+
+    const { default: ResubmitDocumentsPage } = await import('../../app/resubmit-documents/page');
+    render(<ResubmitDocumentsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /contact VBS Group on WhatsApp/i }));
+
+    expect(openMock).toHaveBeenCalledWith(
+      expect.stringContaining('phone=919876500000'),
+      '_blank',
+      'noopener,noreferrer',
+    );
   });
 });

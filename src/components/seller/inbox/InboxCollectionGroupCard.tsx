@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Bell, ChevronDown, Loader2, Send, StickyNote } from 'lucide-react';
+import { Bell, ChevronDown, Loader2, ReceiptText, Send, StickyNote } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
@@ -32,7 +32,7 @@ export function duesSubtitle(group: InboxDetailGroup): string {
 /** Aged invoice sections -- shared by the dues card/screen and the over-limit body. */
 export function DuesSectionList({ sections }: { sections: DuesSection[] }) {
   return (
-    <div className="space-y-7">
+    <div className="space-y-5">
       {sections.map((section) => (
         <div key={section.key} className="space-y-3">
           <div className="flex items-baseline justify-between gap-3">
@@ -41,18 +41,22 @@ export function DuesSectionList({ sections }: { sections: DuesSection[] }) {
             </p>
             <p className="font-mono text-base font-bold tabular-nums text-cream-950">{section.totalAmountLabel}</p>
           </div>
-          <div className="divide-y divide-cream-200 rounded-[10px] border border-cream-200">
+          <div className="space-y-2">
             {section.rows.map((row) => (
-              <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-x-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7.5rem]">
-                <Link
-                  href={`/invoices/${row.invoiceId}`}
-                  className="min-w-0 truncate font-mono text-base font-semibold text-cream-950 underline-offset-4 hover:underline"
-                >
-                  {row.invoiceNumber}
-                </Link>
-                <p className="min-w-0 truncate text-base text-cream-600 max-sm:col-start-1 max-sm:row-start-2">{row.dateLabel}</p>
-                <p className="text-right font-mono text-base font-semibold tabular-nums text-cream-900 max-sm:col-start-2 max-sm:row-span-2 max-sm:row-start-1 max-sm:self-center">{row.amountLabel}</p>
-              </div>
+              <Link
+                key={row.id}
+                href={`/invoices/${row.invoiceId}`}
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[12px] border border-cream-200 bg-white px-3 py-3 transition-colors hover:border-cream-300 hover:bg-cream-50"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-cream-200 bg-cream-50 text-cream-600">
+                  <ReceiptText className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate font-mono text-base font-semibold text-cream-950">{row.invoiceNumber}</span>
+                  <span className="mt-0.5 block truncate text-sm text-cream-600">{row.dateLabel}</span>
+                </span>
+                <span className="shrink-0 text-right font-mono text-base font-semibold tabular-nums text-cream-900">{row.amountLabel}</span>
+              </Link>
             ))}
           </div>
         </div>

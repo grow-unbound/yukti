@@ -15,13 +15,13 @@ import { buildOutstandingSections } from '@/lib/inbox/inbox-detail-groups';
 import { InboxApprovalDetails } from './InboxApprovalDetails';
 import { InboxApprovalDocuments } from './InboxApprovalDocuments';
 import { DuesSectionList } from './InboxCollectionGroupCard';
+import { InboxOrderPanel } from './InboxOrderPanel';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
 
 const InboxEnquiryPanel = dynamic(
   () => import('./InboxEnquiryPanel').then((m) => m.InboxEnquiryPanel),
   { ssr: false, loading: () => <div className="h-[220px]" aria-hidden /> },
 );
-
 export const APPROVAL_ENTRY_TYPES = new Set(['business_approval', 'new_user_login']);
 
 export function isApprovalEntry(entry: InboxEntry): boolean {
@@ -185,6 +185,8 @@ export function InboxEntryDetailContent({ entry }: { entry: InboxEntry }) {
         </>
       ) : entry.entry_type === 'new_enquiry' ? (
         <InboxEnquiryPanel entryId={entry.id} />
+      ) : entry.entry_type === 'new_order_confirmation' || entry.entry_type === 'order_dispatch_needed' ? (
+        <InboxOrderPanel entry={entry} />
       ) : entry.entry_type === 'whatsapp_buyer_message' ? (
         <WhatsAppMessagePanel entry={entry} />
       ) : null}

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
 
 export type BuyerPricedLine = {
   tenant_product_id: string;
@@ -41,8 +42,8 @@ export async function resolveAuthoritativePrices(
       .is('deleted_at', null);
     if (campaignItemsError) throw new Error(campaignItemsError.message);
     for (const row of (campaignItemRows ?? []) as Array<{ tenant_product_id: string; price_override: number | string | null }>) {
-      const override = Number(row.price_override);
-      if (Number.isFinite(override) && override > 0) {
+      const override = campaignOverridePrice(row.price_override);
+      if (override !== null) {
         campaignPriceMap.set(row.tenant_product_id, override);
       }
     }

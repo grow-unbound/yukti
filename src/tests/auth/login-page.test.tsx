@@ -2,14 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AUTH_LOGIN_COPY } from '@/constants/auth-login-copy';
 import { DEVICE_HAS_LOGGED_IN_KEY } from '@/lib/auth-device-login';
+import { resolveAuthSurface } from '@/lib/auth-surface';
+import { LoginFormWithSuspense } from '@/components/auth/LoginForm';
 
-let queryParams = new URLSearchParams();
-const fetchMock = vi.fn();
-const identifyMock = vi.fn();
-const setSessionMock = vi.fn();
-const getSessionMock = vi.fn();
-const signOutMock = vi.fn();
-const openMock = vi.fn();
+const testState = vi.hoisted(() => ({
+  queryParams: new URLSearchParams(),
+  fetchMock: vi.fn(),
+  identifyMock: vi.fn(),
+  setSessionMock: vi.fn(),
+  openMock: vi.fn(),
+  captureMock: vi.fn(),
+}));
+
+const supplierSurface = resolveAuthSurface('app.localhost:3000', 'http:');
 
 vi.setConfig({ testTimeout: 15_000 });
 
@@ -19,46 +24,35 @@ vi.mock('next/navigation', () => ({
     replace: vi.fn(),
     refresh: vi.fn(),
   }),
-  useSearchParams: () => queryParams,
+  useSearchParams: () => testState.queryParams,
 }));
 
-vi.mock('posthog-js', () => ({
-  default: {
+vi.mock('posthog-js/react', () => ({
+  usePostHog: () => ({
     get_distinct_id: () => null,
     get_session_id: () => null,
-    identify: identifyMock,
-  },
+    identify: testState.identifyMock,
+    capture: testState.captureMock,
+  }),
 }));
 
 vi.mock('@/lib/supabase-browser', () => ({
   supabaseBrowser: {
     auth: {
-      setSession: setSessionMock,
-      getSession: getSessionMock,
-      signOut: signOutMock,
+      setSession: testState.setSessionMock,
     },
   },
 }));
 
-function testJwt(claims: Record<string, unknown>) {
-  return [
-    'eyJhbGciOiJub25lIn0',
-    btoa(JSON.stringify(claims)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-    'sig',
-  ].join('.');
-}
-
 describe('LoginPage', () => {
   beforeEach(() => {
-    queryParams = new URLSearchParams();
-    fetchMock.mockReset();
-    identifyMock.mockReset();
-    setSessionMock.mockReset();
-    getSessionMock.mockReset();
-    getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
-    signOutMock.mockReset();
-    signOutMock.mockResolvedValue({ error: null });
-    openMock.mockReset();
+    testState.queryParams = new URLSearchParams();
+    testState.fetchMock.mockReset();
+    testState.identifyMock.mockReset();
+    testState.setSessionMock.mockReset();
+    testState.openMock.mockReset();
+    testState.captureMock.mockReset();
+
     const store = new Map<string, string>();
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
@@ -79,10 +73,10 @@ describe('LoginPage', () => {
         },
       },
     });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', testState.fetchMock);
     Object.defineProperty(window, 'open', {
       configurable: true,
-      value: openMock,
+      value: testState.openMock,
     });
   });
 
@@ -90,58 +84,34 @@ describe('LoginPage', () => {
     cleanup();
   });
 
-  it('defaults to the otp entry point and does not show the email fallback there', async () => {
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
+  it('defaults to the otp entry point and keeps buyer routing on the current suffix', async () => {
+    render(<LoginFormWithSuspense initialSurface={supplierSurface} />);
 
-    render(<LoginPage />);
-
-    expect(screen.getByRole('heading', { name: AUTH_LOGIN_COPY.login.welcomeTitle })).toBeInTheDocument();
-    expect(await screen.findByText(AUTH_LOGIN_COPY.login.welcomeSubtitle)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: AUTH_LOGIN_COPY.login.sellerTitle })).toBeInTheDocument();
+    expect(await screen.findByText(AUTH_LOGIN_COPY.login.sellerSubtitle)).toBeInTheDocument();
     expect(screen.getByText(AUTH_LOGIN_COPY.login.landingBody)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Login with Email' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Buyer Login' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: AUTH_LOGIN_COPY.login.buyerOnSellerCta })).toHaveAttribute(
       'href',
-      'https://catalog.useyukti.in/login',
+      'http://catalog.localhost:3000/login',
     );
     expect(
-      screen.getByRole('link', { name: AUTH_LOGIN_COPY.login.createSellerAccount }),
+      screen.getAllByRole('link', { name: AUTH_LOGIN_COPY.login.createSellerAccount })[0],
     ).toHaveAttribute('href', '/signup');
-  });
-
-  it('keeps the buyer login link on the current preview suffix', async () => {
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: {
-        ...window.location,
-        protocol: 'https:',
-        hostname: 'app.yukti.so',
-        host: 'app.yukti.so',
-      },
-    });
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
-
-    render(<LoginPage />);
-
-    expect(screen.getByRole('link', { name: 'Buyer Login' })).toHaveAttribute(
-      'href',
-      'https://catalog.yukti.so/login',
-    );
   });
 
   it('hides the welcome subtitle after this device has logged in once', async () => {
     window.localStorage.setItem(DEVICE_HAS_LOGGED_IN_KEY, '1');
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
 
-    render(<LoginPage />);
+    render(<LoginFormWithSuspense initialSurface={supplierSurface} />);
 
-    expect(screen.getByRole('heading', { name: AUTH_LOGIN_COPY.login.welcomeTitle })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: AUTH_LOGIN_COPY.login.sellerTitle })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByText(AUTH_LOGIN_COPY.login.welcomeSubtitle)).not.toBeInTheDocument();
+      expect(screen.queryByText(AUTH_LOGIN_COPY.login.sellerSubtitle)).not.toBeInTheDocument();
     });
   });
 
   it('shows the unregistered resolution card and resets back to the number form', async () => {
-    fetchMock.mockResolvedValueOnce({
+    testState.fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         ref_id: null,
@@ -154,8 +124,7 @@ describe('LoginPage', () => {
       }),
     });
 
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
-    render(<LoginPage />);
+    render(<LoginFormWithSuspense initialSurface={supplierSurface} />);
 
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '9876543210' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send OTP' }));
@@ -173,58 +142,36 @@ describe('LoginPage', () => {
   });
 
   it('shows the buyer-login moved state without proceeding to OTP verification', async () => {
-    fetchMock.mockResolvedValueOnce({
+    testState.fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         ref_id: null,
         registered: false,
         outcome: 'buyer_moved',
-        message: 'Buyer login has moved to https://catalog.useyukti.in/login.',
+        message: 'Buyer login has moved to http://catalog.localhost:3000/login.',
         seller_name: null,
         seller_whatsapp_number: null,
         buyer_name: null,
-        catalog_url: 'https://catalog.useyukti.in/login',
+        catalog_url: 'http://catalog.localhost:3000/login',
       }),
     });
 
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
-    render(<LoginPage />);
+    render(<LoginFormWithSuspense initialSurface={supplierSurface} />);
 
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '9876543210' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send OTP' }));
 
     expect(await screen.findByText('Buyer login has moved')).toBeInTheDocument();
-    expect(screen.getByText('Buyer login has changed to a new URL: https://catalog.useyukti.in/login')).toBeInTheDocument();
+    expect(screen.getByText('Buyer login has changed to a new URL: http://catalog.localhost:3000/login')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Go to Buyer Login' })).toHaveAttribute(
       'href',
-      'https://catalog.useyukti.in/login',
+      'http://catalog.localhost:3000/login',
     );
     expect(screen.queryByText(/Enter the 6-digit code/i)).not.toBeInTheDocument();
   });
 
-  it('shows a logout escape hatch for an existing buyer session on the seller app login page', async () => {
-    getSessionMock.mockResolvedValueOnce({
-      data: {
-        session: {
-          access_token: testJwt({ user_role: 'buyer_admin' }),
-        },
-      },
-      error: null,
-    });
-
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
-    render(<LoginPage />);
-
-    expect(await screen.findByText('Buyer login has moved')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Log out on this device' }));
-
-    await waitFor(() => {
-      expect(signOutMock).toHaveBeenCalledTimes(1);
-    });
-  });
-
   it('includes the full seller-facing draft when informing the seller', async () => {
-    fetchMock.mockResolvedValueOnce({
+    testState.fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         ref_id: null,
@@ -250,8 +197,7 @@ describe('LoginPage', () => {
       return el;
     }) as typeof document.createElement);
 
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
-    render(<LoginPage />);
+    render(<LoginFormWithSuspense initialSurface={supplierSurface} />);
 
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '9876543210' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send OTP' }));
@@ -264,7 +210,6 @@ describe('LoginPage', () => {
     const textParam = new URL(openedUrl).searchParams.get('text') ?? '';
     expect(openedUrl).toMatch(/^https:\/\/wa\.me\/\?text=/);
     expect(openedUrl).toContain('%27');
-    // Prefill strips https:// so WhatsApp does not collapse the draft to the URL alone
     expect(textParam).not.toContain('https://');
     expect(textParam).toContain('Hi,');
     expect(textParam).toContain("I'd like to order from you through Yukti, but I don't have access yet.");
@@ -272,7 +217,7 @@ describe('LoginPage', () => {
       'Yukti is a simple app for managing your catalog, pricing, and orders with buyers like me.',
     );
     expect(textParam).toContain(
-      'Could you create your seller account and add me as a buyer, so I can browse your catalog and order?',
+      'Could you create your Supplier workspace and add me as a buyer, so I can browse your catalog and order?',
     );
     expect(textParam).toContain('Seller signup:');
     expect(textParam).toMatch(/\/signup/);
@@ -280,7 +225,7 @@ describe('LoginPage', () => {
   });
 
   it('shows the seller-disabled resolution card and opens WhatsApp for request access', async () => {
-    fetchMock.mockResolvedValueOnce({
+    testState.fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         ref_id: null,
@@ -293,8 +238,7 @@ describe('LoginPage', () => {
       }),
     });
 
-    const LoginPage = await import('../../../app/(auth)/login/page').then((mod) => mod.default);
-    render(<LoginPage />);
+    render(<LoginFormWithSuspense initialSurface={supplierSurface} />);
 
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '9876543210' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send OTP' }));
@@ -302,12 +246,12 @@ describe('LoginPage', () => {
     expect(await screen.findByText('Your account is not enabled by Acme Corp for catalog access and ordering')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Request Access' }));
 
-    expect(openMock).toHaveBeenCalledWith(
+    expect(testState.openMock).toHaveBeenCalledWith(
       expect.stringContaining('https://api.whatsapp.com/send?phone=919876500000&text='),
       '_blank',
       'noopener,noreferrer',
     );
-    const openedUrl = openMock.mock.calls[0][0] as string;
+    const openedUrl = testState.openMock.mock.calls[0][0] as string;
     expect(new URL(openedUrl).searchParams.get('text')).toContain('Acme Corp');
   });
 });

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Store } from 'lucide-react';
 import { YuktiLogo } from '@/components/brand/YuktiLogo';
 import { useBuyerMe } from '@/hooks/useBuyerMe';
@@ -24,18 +24,30 @@ import { STOREFRONT } from '@/lib/storefront-paths';
  * /api/buyer/me reports mode:'buyer'. No polling, matching the rest of
  * this app's approval-gate pattern (see /consent).
  */
-export default function BuyerPendingPage() {
+function BuyerPendingContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: me, isLoading, refetch } = useBuyerMe();
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState('');
   const [selectedBuyerId, setSelectedBuyerId] = useState<string | null>(null);
 
+  const submittedState =
+    searchParams.get('resubmitted') === '1'
+      ? 'resubmitted'
+      : searchParams.get('intake_submitted') === '1'
+        ? 'intake_submitted'
+        : searchParams.get('request_sent') === '1'
+          ? 'request_sent'
+          : null;
+  const hasSubmittedState = submittedState !== null;
   const notPending = !isLoading && (!me || me.mode !== 'pending');
   const needsIntake = !isLoading && needsIntakeForm(me);
-  const needsMoreInfo = !isLoading && me?.mode === 'pending' && me.pending?.onboarding_status === 'needs_more_info';
+  const rawNeedsMoreInfo = !isLoading && me?.mode === 'pending' && me.pending?.onboarding_status === 'needs_more_info';
+  const shouldRedirectToResubmit = rawNeedsMoreInfo && submittedState !== 'resubmitted';
+  const shouldRedirectToOnboarding = needsIntake && submittedState !== 'intake_submitted';
   useEffect(() => {
-    if (needsMoreInfo) {
+    if (shouldRedirectToResubmit) {
       router.replace('/resubmit-documents');
       return;
     }
@@ -43,12 +55,12 @@ export default function BuyerPendingPage() {
       router.replace(me ? STOREFRONT.home : '/login');
       return;
     }
-    if (needsIntake) {
+    if (shouldRedirectToOnboarding) {
       router.replace('/onboarding');
     }
-  }, [notPending, needsIntake, needsMoreInfo, me, router]);
+  }, [notPending, shouldRedirectToOnboarding, shouldRedirectToResubmit, me, router]);
   const showsMainCard =
-    !isLoading && me?.mode === 'pending' && !needsIntake && !needsMoreInfo && me.pending?.onboarding_status !== 'declined';
+    !isLoading && me?.mode === 'pending' && !shouldRedirectToOnboarding && !shouldRedirectToResubmit && me.pending?.onboarding_status !== 'declined';
 
   // Every account this phone has at the tenant (some enabled, some not) — so the buyer can open an
   // enabled one instead of being forced to request access for a disabled one. `accounts` stays null
@@ -56,12 +68,37 @@ export default function BuyerPendingPage() {
   const { accounts, lookupDone: accountsLookupDone, reload: loadAccounts } = useAccessAccounts(showsMainCard, me?.buyer_id);
   const { busyBuyerId, error: switchError, openAccount } = useAccountSwitch(me?.tenant?.id);
 
-  if (notPending || needsIntake || needsMoreInfo) return null;
+  if (notPending || shouldRedirectToOnboarding || shouldRedirectToResubmit) return null;
 
   const sellerName = me?.tenant?.name ?? 'the seller';
   const sellerWhatsappNumber = me?.pending?.seller_whatsapp_number ?? null;
   const isDeclined = me?.pending?.onboarding_status === 'declined';
   const publicBrowseAllowed = me?.buyer_catalog?.public_browse_allowed === true;
+  const pendingStatus = me?.pending?.onboarding_status ?? null;
+  const statusLabel =
+    pendingStatus === 'needs_more_info'
+      ? 'Details received, awaiting seller review'
+      : pendingStatus === 'declined'
+        ? 'Declined'
+        : pendingStatus === 'approved'
+          ? 'Approved, waiting for access'
+          : 'Pending approval';
+  const confirmationTitle =
+    submittedState === 'resubmitted'
+      ? 'Details resubmitted'
+      : submittedState === 'intake_submitted'
+        ? 'Request sent'
+        : submittedState === 'request_sent'
+          ? 'Request sent'
+          : null;
+  const confirmationBody =
+    submittedState === 'resubmitted'
+      ? `Thanks. We've sent your updated details to ${sellerName}. You'll get a WhatsApp message once your access is approved.`
+      : submittedState === 'intake_submitted'
+        ? `Thanks. We've sent your details to ${sellerName}. You'll get a WhatsApp message once your access is approved.`
+        : submittedState === 'request_sent'
+          ? `We've sent your access request to ${sellerName}. You'll get a WhatsApp message once your access is approved.`
+          : null;
 
   const accountList = accounts ?? [];
   const hasMultipleAccounts = accountList.length > 1;
@@ -79,12 +116,13 @@ export default function BuyerPendingPage() {
   // Don't flash a request button for the session's own account while we may still find siblings.
   const checkingAccounts = !accountsLookupDone && !accounts;
   const canRequestAccess = accounts
-    ? requestableAccounts.length > 0
-    : isExistingBuyer &&
+    ? !hasSubmittedState && requestableAccounts.length > 0
+    : !hasSubmittedState &&
+      isExistingBuyer &&
       !me?.pending?.access_requested &&
       !me?.pending?.intake_submitted &&
       me?.pending?.onboarding_status !== 'needs_more_info';
-  const showAccountList = hasMultipleAccounts || (accounts !== null && isExistingBuyer && accountList.length === 1 && canRequestAccess);
+  const showAccountList = !hasSubmittedState && (hasMultipleAccounts || (accounts !== null && isExistingBuyer && accountList.length === 1 && canRequestAccess));
 
   async function handleRequestAccess() {
     setRequesting(true);
@@ -103,6 +141,7 @@ export default function BuyerPendingPage() {
       }
       setSelectedBuyerId(null);
       await Promise.all([refetch(), loadAccounts()]);
+      router.replace('/pending?request_sent=1');
     } catch {
       setRequestError('Could not send your request. Please try again.');
     } finally {
@@ -135,8 +174,18 @@ export default function BuyerPendingPage() {
         </div>
 
         <h1 className="text-h3 font-display text-cream-900 mb-1">
-          {hasMultipleAccounts ? 'Choose your account' : canRequestAccess ? 'Access needed' : 'Request sent'}
+          {confirmationTitle ?? (hasMultipleAccounts ? 'Choose your account' : canRequestAccess ? 'Access needed' : 'Request sent')}
         </h1>
+        {confirmationTitle && confirmationBody ? (
+          <div className="rounded-md bg-success-50 border border-success-500/30 px-4 py-3 space-y-2 mb-4 mt-4">
+            <p className="text-body-sm font-medium text-success-700">{confirmationTitle}</p>
+            <p className="text-body-sm text-success-700/90">{confirmationBody}</p>
+            <div className="rounded-md bg-white border border-cream-300 px-3 py-2">
+              <p className="text-caption font-semibold text-cream-700 uppercase">Current status</p>
+              <p className="text-body-sm text-cream-900">{statusLabel}</p>
+            </div>
+          </div>
+        ) : null}
         {showAccountList ? (
           <div className="mb-6 mt-4 space-y-4">
             <div className="rounded-md bg-warning-50 border border-warning-200 px-4 py-3 space-y-1">
@@ -229,7 +278,7 @@ export default function BuyerPendingPage() {
             }
             className="w-full inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-teal-500 hover:bg-teal-600 text-cream-50 text-body-sm font-semibold transition-colors duration-base mb-3"
           >
-            Message {sellerName} on WhatsApp
+            Contact {sellerName} on WhatsApp
           </button>
         )}
 
@@ -242,5 +291,13 @@ export default function BuyerPendingPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function BuyerPendingPage() {
+  return (
+    <Suspense fallback={null}>
+      <BuyerPendingContent />
+    </Suspense>
   );
 }

@@ -60,7 +60,9 @@ supabase/.temp.*
 .claude/skills/*
 !.claude/skills/wrap/
 !.claude/skills/context-review/
+!.claude/skills/tenant-case-study/
 CLAUDE\ OUTPUTS/
+.claude/skills/tenant-case-study/**/__pycache__/
 
 #Playwright
 .playwright-mcp/

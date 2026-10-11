@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buyerOtpStore } from '@/lib/server/buyer-otp-store';
+import { buyerOtpStore, hashOtp } from '@/lib/server/buyer-otp-store';
 import { findPendingSellerActivationsByPhone, mintSellerActivationSession } from '@/lib/server/seller-team-activation';
+import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
 
 const MAX_ATTEMPTS = 5;
 
 export async function POST(request: NextRequest) {
   try {
+    const surfaceError = requireSupplierWorkspaceSurface(request);
+    if (surfaceError) return surfaceError;
+
     const body = await request.json() as { ref_id?: string; otp?: string };
     const ref_id = (body.ref_id ?? '').trim();
     const otp = (body.otp ?? '').trim();
@@ -30,7 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Too many incorrect attempts. Request a new OTP.' }, { status: 429 });
     }
 
-    if (record.otp !== otp) {
+    if (record.otp !== hashOtp(otp) && record.otp !== otp) {
       await buyerOtpStore.set(ref_id, record);
       return NextResponse.json(
         { error: `Incorrect OTP. ${MAX_ATTEMPTS - record.attempts} attempt(s) remaining.` },

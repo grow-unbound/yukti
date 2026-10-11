@@ -142,7 +142,7 @@ describe('middleware auth redirects', () => {
     expect(response.headers.get('location')).toBe('https://app.useyukti.in/login?next=%2F');
   });
 
-  it('redirects app host root to Today for authenticated sellers', async () => {
+  it('redirects app host root to Inbox for authenticated sellers', async () => {
     getClaimsMock.mockResolvedValue({
       data: { claims: { sub: 'seller-user-1', tenant_id: 'tenant-1', user_role: 'seller_admin' } },
       error: null,
@@ -152,10 +152,10 @@ describe('middleware auth redirects', () => {
     const response = await middleware(tenantRequest('/', 'app.useyukti.in'));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toBe('https://app.useyukti.in/today');
+    expect(response.headers.get('location')).toBe('https://app.useyukti.in/inbox');
   });
 
-  it('redirects authenticated sellers away from app login to Today', async () => {
+  it('redirects authenticated sellers away from app login to Inbox', async () => {
     getClaimsMock.mockResolvedValue({
       data: { claims: { sub: 'seller-user-1', tenant_id: 'tenant-1', user_role: 'seller_admin' } },
       error: null,
@@ -165,7 +165,7 @@ describe('middleware auth redirects', () => {
     const response = await middleware(tenantRequest('/login', 'app.useyukti.in'));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toBe('https://app.useyukti.in/today');
+    expect(response.headers.get('location')).toBe('https://app.useyukti.in/inbox');
   });
 
   it('redirects to /login when the JWT fails signature verification', async () => {
@@ -1057,7 +1057,7 @@ describe('catalog host middleware', () => {
     const { middleware } = await import('../../../middleware');
     const response = await middleware(catalogRequest('/workspaces'));
     expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toBe('https://app.useyukti.in/today');
+    expect(response.headers.get('location')).toBe('https://app.useyukti.in/inbox');
   });
 
   it('serves catalog.localhost without canonical redirect', async () => {
@@ -1101,7 +1101,7 @@ describe('catalog host middleware', () => {
       const response = await middleware(catalogRequest('/workspaces', 'catalog.yukti.so'));
 
       expect(response.status).toBe(307);
-      expect(response.headers.get('location')).toBe('https://app.yukti.so/today');
+      expect(response.headers.get('location')).toBe('https://app.yukti.so/inbox');
     } finally {
       if (original === undefined) {
         delete process.env.VERCEL_ENV;

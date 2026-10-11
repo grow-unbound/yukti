@@ -132,7 +132,7 @@ describe('SellerSidebar', () => {
     });
     expect(prefetchSpy).toHaveBeenCalled();
     const paths = prefetchSpy.mock.calls[0][0] as string[];
-    expect(paths).toContain('/today');
+    expect(paths).toContain('/inbox');
     expect(paths).toContain('/pulse');
     expect(paths).toContain('/sales/invoices');
     expect(paths).toContain('/settings');
@@ -195,7 +195,7 @@ describe('SellerSidebar', () => {
     expect(screen.queryByText('OPERATIONS')).not.toBeInTheDocument();
     expect(screen.queryByText('MARKET')).not.toBeInTheDocument();
     expect(screen.queryByText('SETUP')).not.toBeInTheDocument();
-    const orderedItems = ['Today', 'Sales', 'Customers', 'Products'];
+    const orderedItems = ['Inbox', 'Sales', 'Customers', 'Products'];
     orderedItems.forEach((label) => {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     });

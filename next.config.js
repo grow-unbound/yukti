@@ -116,7 +116,18 @@ const nextConfig = {
     ];
   },
   async redirects() {
-    return [];
+    return [
+      {
+        source: '/today',
+        destination: '/inbox',
+        permanent: false,
+      },
+      {
+        source: '/today/:path*',
+        destination: '/inbox/:path*',
+        permanent: false,
+      },
+    ];
   },
   async rewrites() {
     // Tenant-scoped guest-ISR routing (plan #4). Deliberately a next.config.js

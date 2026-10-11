@@ -61,7 +61,7 @@ export function CatalogBuyerAuthHero({
     return (
       <>
         <TenantBrandingCard tenant={tenant} />
-        <h1 className="mb-2 font-display text-h2 text-cream-900">
+        <h1 className="mb-2 font-display text-h3 text-cream-900 sm:text-h2">
           {variant === 'login' ? `Login to explore catalog` : 'Enter OTP to start shopping'}
         </h1>
         <p className="mb-6 text-body-sm text-cream-600">
@@ -75,7 +75,7 @@ export function CatalogBuyerAuthHero({
 
   return (
     <>
-      <h1 className="mb-2 font-display text-h2 text-cream-900">
+      <h1 className="mb-2 font-display text-h3 text-cream-900 sm:text-h2">
         {variant === 'login' ? 'Find your sellers on Yukti' : 'Enter OTP to start shopping'}
       </h1>
       <p className="mb-6 text-body-sm text-cream-600">

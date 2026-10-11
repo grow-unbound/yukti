@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { usePostHog } from 'posthog-js/react';
 import { Turnstile } from '@marsidev/react-turnstile';
-import { YuktiLogo } from '@/components/brand/YuktiLogo';
+import { AuthHomeLogoLink } from '@/components/auth/AuthHomeLogoLink';
 import {
   AUTH_LOGIN_COPY,
   buildInformSellerMessage,
@@ -151,7 +151,7 @@ export function SignupFormCard() {
         return;
       }
 
-      setApiError('Account was created but verification could not be initiated. Please sign in.');
+      setApiError('Account was created but verification could not be initiated. Please login.');
       posthog?.capture('signup_failed', {
         failure_type: 'verification_not_initiated',
         status: res.status,
@@ -177,22 +177,12 @@ export function SignupFormCard() {
   return (
     <div className="bg-cream-50 border border-cream-300 rounded-lg shadow-md p-8">
       <div className="mb-7 flex justify-center">
-        <YuktiLogo variant="stacked-lockup" className="h-14 w-[76px]" priority />
+        <AuthHomeLogoLink />
       </div>
 
-      <h1 className="font-display text-h2 text-cream-900 mb-1">Create your seller account</h1>
-      <p className="text-body-sm text-cream-600 mb-2">
-        For manufacturers, distributors, and wholesalers selling in bulk to other businesses
-      </p>
+      <h1 className="font-display text-h2 text-cream-900 mb-1">Create your Supplier workspace</h1>
       <p className="text-body-sm text-cream-600 mb-6">
-        {AUTH_LOGIN_COPY.login.buyerInsteadPrefix}{' '}
-        <button
-          type="button"
-          onClick={handleInformDistributor}
-          className="font-medium text-ember-400 transition-colors hover:text-ember-500"
-        >
-          {AUTH_LOGIN_COPY.login.buyerInsteadCta}
-        </button>
+        For manufacturers, distributors, and wholesalers selling in bulk to other businesses
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-h-[calc(100vh-280px)] overflow-y-auto pr-1" noValidate>
@@ -297,14 +287,27 @@ export function SignupFormCard() {
           disabled={isSubmitting || (!!turnstileSiteKey && !turnstileToken)}
           className="w-full px-4 py-2.5 rounded-md bg-[#221E1A] hover:bg-[#3D3630] active:bg-[#2E2A26] active:scale-[0.97] text-cream-50 text-body-sm font-semibold transition-all duration-base disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSubmitting ? 'Creating account…' : 'Create Account'}
+          {isSubmitting ? 'Creating workspace…' : 'Create workspace'}
         </button>
       </form>
+
+      <div className="mt-5 rounded-lg border border-ember-200 bg-ember-50 px-4 py-3 text-center">
+        <p className="text-caption font-semibold uppercase tracking-[0.08em] text-cream-600">
+          {AUTH_LOGIN_COPY.login.buyerInsteadPrefix}
+        </p>
+        <button
+          type="button"
+          onClick={handleInformDistributor}
+          className="mt-1 text-body-sm font-semibold text-ember-500 transition-colors hover:text-ember-600"
+        >
+          {AUTH_LOGIN_COPY.login.buyerInsteadCta}
+        </button>
+      </div>
 
       <p className="mt-5 text-center text-body-sm text-cream-600">
         Already have an account?{' '}
         <Link href="/login" className="text-ember-400 hover:text-ember-500 font-medium transition-colors">
-          Sign in
+          Login
         </Link>
       </p>
     </div>

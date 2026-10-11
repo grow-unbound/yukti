@@ -19,6 +19,7 @@ import type {
   BuyerCategory,
 } from '@/types/buyer';
 import { isPendingBuyerCatalogSession } from '@/lib/server/buyer-pending-guard';
+import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
 import {
   getCachedGuestPricingContext,
   resolveGuestPricingContext,
@@ -186,8 +187,8 @@ export async function resolveVisibleCampaignMap(
   const campaignsById = new Map(visibleCampaigns.map((campaign) => [campaign.id, campaign]));
   const rows = (data ?? []) as Array<CampaignItemRow & { campaign_id: string }>;
   rows.sort((a, b) => {
-    const aHasOverride = a.price_override != null ? 0 : 1;
-    const bHasOverride = b.price_override != null ? 0 : 1;
+    const aHasOverride = campaignOverridePrice(a.price_override) != null ? 0 : 1;
+    const bHasOverride = campaignOverridePrice(b.price_override) != null ? 0 : 1;
     if (aHasOverride !== bHasOverride) return aHasOverride - bHasOverride;
 
     const campaignRank = (campaignPriority.get(a.campaign_id) ?? Number.MAX_SAFE_INTEGER)
@@ -212,7 +213,7 @@ export async function resolveVisibleCampaignMap(
       campaign_id: campaign.id,
       campaign_name: campaign.name,
       campaign_valid_until: campaign.valid_to,
-      campaign_price: row.price_override,
+      campaign_price: campaignOverridePrice(row.price_override),
       is_featured: Boolean(row.is_featured),
     });
   }
@@ -518,7 +519,7 @@ export async function enrichBuyerProducts(
       : hiddenPriceEnquiry
         ? null
         : (priceMap.get(productId) ?? Number(row.base_selling_price ?? row.mrp ?? 0));
-    const campaignPrice = campaign?.campaign_price ?? null;
+    const campaignPrice = campaignOverridePrice(campaign?.campaign_price);
     const unitPrice = hiddenPriceEnquiry ? null : (guestPricing ? resolvedPrice : (campaignPrice ?? resolvedPrice));
     const onHand = Math.max(0, inventoryMap.get(productId) ?? 0);
     const fallbackImageUrl = row.image_urls?.length ? row.image_urls[0] : null;
@@ -660,7 +661,7 @@ async function resolveCatalogScope(params: CatalogPageParams): Promise<CatalogSc
           campaign_id: selectedCampaign.id,
           campaign_name: selectedCampaign.name,
           campaign_valid_until: selectedCampaign.valid_to,
-          campaign_price: row.price_override,
+          campaign_price: campaignOverridePrice(row.price_override),
           is_featured: Boolean(row.is_featured),
         }] as const] : [];
       }),

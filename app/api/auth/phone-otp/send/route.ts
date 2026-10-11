@@ -1,15 +1,21 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
-import { isValidIndianMobile, normalizeIndianPhone } from '@/lib/phone';
-import { findAllLoginCandidates, findBuyerLoginCandidates, findSellerLoginCandidates, type BuyerLoginCandidate } from '@/lib/server/buyer-access';
-import { buyerOtpStore } from '@/lib/server/buyer-otp-store';
+import { normalizeSupportedWhatsappLookupPhone } from '@/lib/phone';
+import {
+  findAllLoginCandidates,
+  findBuyerLoginCandidates,
+  findSellerLoginCandidates,
+  type BuyerLoginCandidate,
+} from '@/lib/server/buyer-access';
+import { buyerOtpStore, type LoginOtpCandidate } from '@/lib/server/buyer-otp-store';
 import { sendLoginOtpWhatsapp } from '@/lib/server/whatsapp';
 import { AUTH_LOGIN_COPY, buildRequestAccessMessage } from '@/constants/auth-login-copy';
 import { isCatalogRequest } from '@/lib/server/catalog-request';
 import { catalogLoginUrlForRequest, parseRequestHost } from '@/lib/storefront-host';
 import { tenantSlugFromReturnTo } from '@/lib/server/catalog-return-to';
 import { getTenantBrandingBySlug } from '@/lib/server/tenant-branding';
+import { resolveAuthSurfaceFromRequest } from '@/lib/server/auth-surface-server';
 
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const OTP_SEND_COOLDOWN_MS = 45 * 1000; // 45 seconds between sends to the same phone
@@ -27,9 +33,9 @@ type PhoneOtpSendResponse =
       catalog_url?: string;
     };
 
-function toLoginOtpBuyerCandidate(candidate: BuyerLoginCandidate) {
+function toLoginOtpBuyerCandidate(candidate: BuyerLoginCandidate): LoginOtpCandidate {
   return {
-    kind: 'buyer' as const,
+    kind: 'buyer',
     tenant_id: candidate.tenant_id,
     tenant_name: candidate.tenant_name,
     tenant_slug: candidate.tenant_slug,
@@ -49,38 +55,55 @@ function toLoginOtpBuyerCandidate(candidate: BuyerLoginCandidate) {
   };
 }
 
+function isEligibleBuyer(candidate: BuyerLoginCandidate): boolean {
+  return Boolean(candidate.buyer_app_enabled && candidate.tenant_app_enabled);
+}
+
+function tenantSlugMatches(candidate: BuyerLoginCandidate, tenantSlug: string | null): boolean {
+  if (!tenantSlug) return true;
+  return candidate.tenant_slug?.toLowerCase() === tenantSlug.toLowerCase();
+}
+
 /**
  * POST /api/auth/phone-otp/send
- * Body: { phoneNumber: string }
+ * Body: { phoneNumber: string, return_to?: string }
  *
- * Looks up the phone across both app.tenant_users (sellers) and app.buyers/buyer_users (buyers).
- * Sellers are always eligible if active. Buyer OTP send requires the tenant
- * storefront to be live; per-account buyer_app_enabled is enforced after OTP.
- * Seller takes priority when the same auth user appears in both tables.
+ * Seller sessions are only discoverable on app.{suffix}. catalog.{suffix} and
+ * tenant.{suffix} resolve buyer candidates only, even if a seller enters their
+ * phone number there.
  */
 export async function POST(request: NextRequest) {
   try {
-    const payload = await request.json() as { phoneNumber?: string; return_to?: string };
+    const payload = await request.json() as { phoneNumber?: string; return_to?: string; tenantSlug?: string | null };
     const raw: string = (payload?.phoneNumber ?? '').trim();
-
-    if (!raw || !isValidIndianMobile(raw)) {
+    const phone = normalizeSupportedWhatsappLookupPhone(raw);
+    if (!raw || !phone) {
       return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
     }
 
-    const phone = normalizeIndianPhone(raw);
+    const hostSurface = resolveAuthSurfaceFromRequest(request);
+    const surface = hostSurface.surface;
+    const isBuyerSurface = surface === 'buyer_catalog' || surface === 'tenant_buyer_catalog';
+    const tenantSlug = hostSurface.tenantSlug ?? payload.tenantSlug ?? null;
+    const returnTo = typeof payload?.return_to === 'string' ? payload.return_to : null;
+    const returnToSlug = tenantSlugFromReturnTo(returnTo);
     const hostTenantId = request.headers.get('x-verified-tenant-id');
-    const onCatalogHost = isCatalogRequest(request);
+    const onCatalogHost = isCatalogRequest(request) || isBuyerSurface;
     const hostHeader = request.headers.get('host') ?? '';
     const hostKind = parseRequestHost(hostHeader);
-    const onAppHost = request.headers.get('x-tenant-subdomain') === 'app' || hostKind.kind === 'app';
+    const onAppHost = surface === 'supplier_workspace' || request.headers.get('x-tenant-subdomain') === 'app' || hostKind.kind === 'app';
 
     let buyerCandidatesForMessages: Awaited<ReturnType<typeof findBuyerLoginCandidates>> | null = null;
-    const allCandidatesRaw = await (async () => {
-      if (onCatalogHost) {
+    const allCandidatesRaw = await (async (): Promise<LoginOtpCandidate[] | PhoneOtpSendResponse> => {
+      if (isBuyerSurface) {
         const buyerCandidates = await findBuyerLoginCandidates(phone);
         buyerCandidatesForMessages = buyerCandidates;
         return buyerCandidates
-          .filter((candidate) => candidate.tenant_app_enabled)
+          .filter((candidate) => {
+            if (hostTenantId) return candidate.tenant_id === hostTenantId && isEligibleBuyer(candidate);
+            if (tenantSlug) return tenantSlugMatches(candidate, tenantSlug) && isEligibleBuyer(candidate);
+            return isEligibleBuyer(candidate);
+          })
           .map(toLoginOtpBuyerCandidate);
       }
 
@@ -88,11 +111,11 @@ export async function POST(request: NextRequest) {
         const buyerCandidates = await findBuyerLoginCandidates(phone);
         buyerCandidatesForMessages = buyerCandidates;
         return buyerCandidates
-          .filter((candidate) => candidate.tenant_id === hostTenantId && candidate.tenant_app_enabled)
+          .filter((candidate) => candidate.tenant_id === hostTenantId && isEligibleBuyer(candidate))
           .map(toLoginOtpBuyerCandidate);
       }
 
-      if (onAppHost && !hostTenantId) {
+      if (onAppHost) {
         const sellerCandidates = await findSellerLoginCandidates(phone);
         if (sellerCandidates.length > 0) return sellerCandidates;
 
@@ -100,7 +123,7 @@ export async function POST(request: NextRequest) {
         buyerCandidatesForMessages = buyerCandidates;
         if (buyerCandidates.length > 0) {
           const catalogUrl = catalogLoginUrlForRequest(hostHeader);
-          const responseBody: PhoneOtpSendResponse = {
+          return {
             ref_id: null,
             registered: false,
             outcome: 'buyer_moved',
@@ -110,7 +133,6 @@ export async function POST(request: NextRequest) {
             buyer_name: null,
             catalog_url: catalogUrl,
           };
-          return responseBody;
         }
         return [];
       }
@@ -122,13 +144,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(allCandidatesRaw);
     }
 
-    let allCandidates = onCatalogHost
-      ? allCandidatesRaw.filter((c) => c.kind === 'buyer')
+    const allCandidates = onCatalogHost
+      ? allCandidatesRaw.filter((candidate) => candidate.kind === 'buyer')
       : allCandidatesRaw;
 
-    // Per-phone cooldown — prevents OTP-bombing a victim's number. Check this
-    // only after non-OTP outcomes (like buyer_moved) have returned, so cutover
-    // guidance is not hidden behind an old send cooldown.
     const cooldownRemaining = await buyerOtpStore.sendCooldownRemainingMs(phone, OTP_SEND_COOLDOWN_MS, OTP_TTL_MS);
     if (cooldownRemaining > 0) {
       return NextResponse.json(
@@ -137,24 +156,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Brand-new phone arriving with a storefront's return_to: they are a prospect of THAT distributor,
-    // not an unknown number — same outcome as signing up on the tenant host. Only when they have no
-    // account at that tenant yet; an existing (blocked) one falls through to the blocked messaging below.
+    // Brand-new phone arriving through a tenant storefront is an access request
+    // for that distributor, not an unscoped unknown number.
     let acquisitionTenantId: string | null = hostTenantId;
-    if (allCandidates.length === 0 && !acquisitionTenantId && onCatalogHost) {
-      const returnSlug = tenantSlugFromReturnTo(typeof payload?.return_to === 'string' ? payload.return_to : null);
-      // Assigned inside the async lookup closure above, which TS's control-flow analysis can't see.
-      const lookedUp = buyerCandidatesForMessages as Awaited<ReturnType<typeof findBuyerLoginCandidates>> | null;
-      const hasAccountAtReturnTenant = (lookedUp ?? []).some(
-        (candidate) => candidate.tenant_slug?.toLowerCase() === returnSlug,
-      );
-      if (returnSlug && !hasAccountAtReturnTenant) {
-        const tenant = await getTenantBrandingBySlug(returnSlug);
+    const acquisitionSlug = tenantSlug ?? returnToSlug;
+    if (allCandidates.length === 0 && !acquisitionTenantId && onCatalogHost && acquisitionSlug) {
+      const lookedUp = buyerCandidatesForMessages ?? await findBuyerLoginCandidates(phone);
+      buyerCandidatesForMessages = lookedUp;
+      const hasAccountAtTenant = lookedUp.some((candidate) => tenantSlugMatches(candidate, acquisitionSlug));
+      if (!hasAccountAtTenant) {
+        const tenant = await getTenantBrandingBySlug(acquisitionSlug);
         if (tenant?.tenantId && tenant.isLive) acquisitionTenantId = tenant.tenantId;
       }
     }
 
     if (allCandidates.length === 0 && acquisitionTenantId) {
+      const tenant = acquisitionSlug ? await getTenantBrandingBySlug(acquisitionSlug) : null;
       const otp = String(crypto.randomInt(100000, 999999));
       const ref_id = await buyerOtpStore.insert({
         kind: 'pending',
@@ -165,11 +182,11 @@ export async function POST(request: NextRequest) {
         candidates: [{
           kind: 'buyer',
           tenant_id: acquisitionTenantId,
-          tenant_name: '',
-          tenant_slug: '',
-          tenant_whatsapp_number: null,
-          tenant_whatsapp_display_name: null,
-          tenant_logo_url: null,
+          tenant_name: tenant?.businessName ?? '',
+          tenant_slug: tenant?.slug ?? acquisitionSlug ?? '',
+          tenant_whatsapp_number: tenant?.whatsappNumber ?? null,
+          tenant_whatsapp_display_name: tenant?.businessName ?? null,
+          tenant_logo_url: tenant?.logoUrl ?? null,
           role: 'buyer_admin',
           buyer_id: null,
           principal_type: 'buyer',
@@ -178,6 +195,8 @@ export async function POST(request: NextRequest) {
           phone,
           business_name: '',
           contact_name: null,
+          buyer_app_enabled: false,
+          tenant_app_enabled: true,
         }],
       });
       if (!ref_id) {
@@ -189,10 +208,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (allCandidates.length === 0) {
-      // Re-run buyer-only lookup to produce contextual blocked messages
       const buyerCandidates = buyerCandidatesForMessages ?? await findBuyerLoginCandidates(phone);
+      const scopedBuyerCandidates = buyerCandidates.filter((candidate) => {
+        if (hostTenantId) return candidate.tenant_id === hostTenantId;
+        if (tenantSlug) return tenantSlugMatches(candidate, tenantSlug);
+        return true;
+      });
 
-      if (buyerCandidates.length === 0) {
+      if (scopedBuyerCandidates.length === 0) {
         const responseBody: PhoneOtpSendResponse = {
           ref_id: null,
           registered: false,
@@ -205,19 +228,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(responseBody);
       }
 
-      const tenantBlocked = buyerCandidates.filter((c) => !c.tenant_app_enabled);
-      const buyerBlocked = buyerCandidates.filter((c) => c.tenant_app_enabled && !c.buyer_app_enabled);
-
+      const tenantBlocked = scopedBuyerCandidates.filter((candidate) => !candidate.tenant_app_enabled);
+      const buyerBlocked = scopedBuyerCandidates.filter((candidate) => candidate.tenant_app_enabled && !candidate.buyer_app_enabled);
       const blockedCandidate = tenantBlocked[0] ?? buyerBlocked[0] ?? null;
+
       if (blockedCandidate) {
         const sellerName = blockedCandidate.tenant_name;
         const sellerWhatsappNumber = blockedCandidate.tenant_whatsapp_number ?? null;
         const buyerName = blockedCandidate.contact_name?.trim() || blockedCandidate.business_name || null;
         const outcome = tenantBlocked.length > 0 ? 'seller_disabled' : 'buyer_disabled';
-        const message = buildRequestAccessMessage({
-          sellerName,
-          buyerName,
-        });
+        const message = buildRequestAccessMessage({ sellerName, buyerName });
 
         const responseBody: PhoneOtpSendResponse = {
           ref_id: null,
@@ -244,7 +264,6 @@ export async function POST(request: NextRequest) {
     }
 
     const otp = String(crypto.randomInt(100000, 999999));
-
     const ref_id = await buyerOtpStore.insert({
       kind: 'pending',
       otp,

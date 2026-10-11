@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const replaceMock = vi.fn();
+const useSearchParamsMock = vi.fn();
 const useBuyerMeMock = vi.fn();
 const apiFetchMock = vi.fn();
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
+  useSearchParams: () => useSearchParamsMock(),
 }));
 vi.mock('@/lib/api-fetch', () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }));
 vi.mock('@/hooks/useBuyerMe', () => ({ useBuyerMe: () => useBuyerMeMock() }));
@@ -44,6 +46,8 @@ function pendingMe(overrides: Record<string, unknown> = {}, dataOverrides: Recor
 describe('BuyerPendingPage', () => {
   beforeEach(() => {
     replaceMock.mockReset();
+    useSearchParamsMock.mockReset();
+    useSearchParamsMock.mockReturnValue(new URLSearchParams());
     useBuyerMeMock.mockReset();
     apiFetchMock.mockReset();
     setSessionMock.mockReset();
@@ -92,6 +96,31 @@ describe('BuyerPendingPage', () => {
     expect(replaceMock).toHaveBeenCalledWith('/resubmit-documents');
     expect(screen.queryByText(/request sent/i)).toBeNull();
   });
+
+  it('shows a submitted confirmation instead of bouncing back to resubmission after a successful resubmit', async () => {
+    useSearchParamsMock.mockReturnValue(new URLSearchParams('resubmitted=1'));
+    useBuyerMeMock.mockReturnValue(pendingMe({ onboarding_status: 'needs_more_info' }));
+    const { default: BuyerPendingPage } = await import('../../app/pending/page');
+    render(<BuyerPendingPage />);
+
+    expect(replaceMock).not.toHaveBeenCalledWith('/resubmit-documents');
+    expect(screen.getAllByText('Details resubmitted').length).toBeGreaterThan(0);
+    expect(screen.getByText(/we've sent your updated details to VBS Group/i)).toBeTruthy();
+    expect(screen.getByText('Current status')).toBeTruthy();
+    expect(screen.getByText('Details received, awaiting seller review')).toBeTruthy();
+  });
+
+  it('shows first-intake confirmation with fetched pending status', async () => {
+    useSearchParamsMock.mockReturnValue(new URLSearchParams('intake_submitted=1'));
+    useBuyerMeMock.mockReturnValue(pendingMe({ intake_submitted: false, self_registered: true, onboarding_status: 'pending_approval' }));
+    const { default: BuyerPendingPage } = await import('../../app/pending/page');
+    render(<BuyerPendingPage />);
+
+    expect(replaceMock).not.toHaveBeenCalledWith('/onboarding');
+    expect(screen.getAllByText('Request sent').length).toBeGreaterThan(0);
+    expect(screen.getByText(/we've sent your details to VBS Group/i)).toBeTruthy();
+    expect(screen.getByText('Pending approval')).toBeTruthy();
+  });
   it('lets an existing buyer with disabled access request it instead of sending them to /onboarding', async () => {
     const me = pendingMe({ intake_submitted: false, self_registered: false, onboarding_status: 'approved' });
     useBuyerMeMock.mockReturnValue(me);
@@ -105,6 +134,7 @@ describe('BuyerPendingPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /request access/i }));
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith('/api/buyer/access/request', { method: 'POST' }));
     await waitFor(() => expect(me.refetch).toHaveBeenCalled());
+    expect(replaceMock).toHaveBeenCalledWith('/pending?request_sent=1');
   });
 
   it('shows an error and keeps the button when the access request fails', async () => {

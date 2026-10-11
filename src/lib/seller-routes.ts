@@ -1,5 +1,5 @@
 export const SELLER_ROUTES = {
-  today: '/today',
+  today: '/inbox',
   pulse: '/pulse',
   sales: {
     root: '/sales',
