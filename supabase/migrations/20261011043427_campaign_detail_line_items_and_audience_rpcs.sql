@@ -14,8 +14,10 @@
 -- re-check that the campaign belongs to p_tenant_id.
 
 -- ---------------------------------------------------------------------------------------------
--- 1. line items of the campaign's orders / estimates, restricted to products that are (or were)
---    campaign members. Eligibility filtering and membership-window attribution stay in the route.
+-- 1. line items of the campaign's ELIGIBLE orders / estimates (status rules mirror
+--    isEligibleCampaignOrder / isEligibleCampaignEstimate in src/lib/server/campaign-performance.ts;
+--    keep them in sync), restricted to products that are (or were) campaign members.
+--    Membership-window attribution stays in the route.
 -- ---------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION app.get_campaign_attributed_line_items(p_tenant_id uuid, p_campaign_id uuid)
 RETURNS jsonb
@@ -25,7 +27,7 @@ SECURITY DEFINER
 SET search_path TO 'app', 'public'
 AS $function$
 DECLARE
-  c_cap constant integer := 20000;
+  c_cap constant integer := 50000;
   v_orders jsonb;
   v_estimates jsonb;
   v_orders_n integer;
@@ -56,6 +58,7 @@ BEGIN
       WHERE o.tenant_id = p_tenant_id
         AND o.campaign_id = p_campaign_id
         AND o.deleted_at IS NULL
+        AND o.status IS DISTINCT FROM 'cancelled'   -- mirrors isEligibleCampaignOrder
         AND EXISTS (
           SELECT 1 FROM app.campaign_items ci
           WHERE ci.campaign_id = p_campaign_id AND ci.tenant_product_id = oi.tenant_product_id
@@ -82,6 +85,10 @@ BEGIN
       WHERE e.tenant_id = p_tenant_id
         AND e.campaign_id = p_campaign_id
         AND e.deleted_at IS NULL
+        -- mirrors isEligibleCampaignEstimate: ineligible parents never count toward the cap
+        AND e.status IS DISTINCT FROM 'pending'
+        AND e.status IS DISTINCT FROM 'void'
+        AND e.converted_to_order_id IS NULL
         AND EXISTS (
           SELECT 1 FROM app.campaign_items ci
           WHERE ci.campaign_id = p_campaign_id AND ci.tenant_product_id = ei.tenant_product_id
@@ -102,7 +109,7 @@ REVOKE ALL ON FUNCTION app.get_campaign_attributed_line_items(uuid, uuid) FROM P
 GRANT EXECUTE ON FUNCTION app.get_campaign_attributed_line_items(uuid, uuid) TO service_role;
 
 COMMENT ON FUNCTION app.get_campaign_attributed_line_items(uuid, uuid) IS
-  'Order/estimate line items (parent_id, tenant_product_id, qty, line_total, unit_price) of a campaign''s orders/estimates for products that are or were campaign members. jsonb scalar; truncated=true when a side exceeds 20000 rows. service_role only.';
+  'Order/estimate line items (parent_id, tenant_product_id, qty, line_total, unit_price) of a campaign''s eligible orders/estimates for products that are or were campaign members. jsonb scalar; truncated=true when a side exceeds 50000 rows. service_role only.';
 
 -- ---------------------------------------------------------------------------------------------
 -- 2. the campaign's audience: member count + buyer rows, scope resolved exactly as the route did
@@ -121,7 +128,9 @@ SECURITY DEFINER
 SET search_path TO 'app', 'public'
 AS $function$
 DECLARE
-  c_cap constant integer := 5000;
+  c_cap constant integer := 5000;           -- explicit membership scopes (cohort / buyer ids)
+  c_fallback_cap constant integer := 200;   -- automatic / all-buyers: the Buyers tab is served by its own paginated RPC
+  c_uuid_re constant text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
   v_campaign record;
   v_cohort_id uuid;
   v_buyer_id uuid;
@@ -144,12 +153,17 @@ BEGIN
     RAISE EXCEPTION 'campaign_not_found' USING ERRCODE = 'P0002';
   END IF;
 
-  v_cohort_id := NULLIF(v_campaign.scope_value ->> 'cohort_id', '')::uuid;
-  v_buyer_id := NULLIF(v_campaign.scope_value ->> 'buyer_id', '')::uuid;
+  -- malformed scope_value entries are ignored (the previous TS code tolerated them) rather than
+  -- raising 22P02 and failing the whole page
+  v_cohort_id := CASE WHEN (v_campaign.scope_value ->> 'cohort_id') ~ c_uuid_re
+                      THEN (v_campaign.scope_value ->> 'cohort_id')::uuid END;
+  v_buyer_id := CASE WHEN (v_campaign.scope_value ->> 'buyer_id') ~ c_uuid_re
+                     THEN (v_campaign.scope_value ->> 'buyer_id')::uuid END;
   IF jsonb_typeof(v_campaign.scope_value -> 'buyer_ids') = 'array' THEN
     SELECT COALESCE(array_agg(DISTINCT x::uuid), ARRAY[]::uuid[])
       INTO v_buyer_ids
-    FROM jsonb_array_elements_text(v_campaign.scope_value -> 'buyer_ids') AS x;
+    FROM jsonb_array_elements_text(v_campaign.scope_value -> 'buyer_ids') AS x
+    WHERE x ~ c_uuid_re;
   ELSE
     v_buyer_ids := ARRAY[]::uuid[];
   END IF;
@@ -218,7 +232,7 @@ BEGIN
       JOIN app.buyers b ON b.id = cbm.buyer_id AND b.tenant_id = p_tenant_id
       WHERE cbm.campaign_id = p_campaign_id AND cbm.valid_until IS NULL
       ORDER BY b.business_name, b.id
-      LIMIT c_cap
+      LIMIT c_fallback_cap
     ) t;
 
   ELSE
@@ -238,7 +252,7 @@ BEGIN
       FROM app.buyers b
       WHERE b.tenant_id = p_tenant_id AND b.is_active = true AND b.deleted_at IS NULL
       ORDER BY b.business_name, b.id
-      LIMIT c_cap
+      LIMIT c_fallback_cap
     ) t;
   END IF;
 
@@ -247,7 +261,7 @@ BEGIN
     'selected_cohort_id', v_selected_cohort_id,
     'selected_cohort_name', v_label,
     'buyers', v_buyers,
-    'truncated', (v_member_count > c_cap AND v_returned >= c_cap)
+    'truncated', (v_use_ids AND v_member_count > c_cap AND v_returned >= c_cap)
   );
 END;
 $function$;
@@ -256,4 +270,4 @@ REVOKE ALL ON FUNCTION app.get_campaign_audience_buyers(uuid, uuid) FROM PUBLIC,
 GRANT EXECUTE ON FUNCTION app.get_campaign_audience_buyers(uuid, uuid) TO service_role;
 
 COMMENT ON FUNCTION app.get_campaign_audience_buyers(uuid, uuid) IS
-  'Campaign audience for the seller campaign detail page: exact member_count plus up to 5000 buyer rows (id, business_name, geography, tier), selected cohort id/name label. jsonb scalar. service_role only.';
+  'Campaign audience for the seller campaign detail page: exact member_count plus up to 5000 buyer rows (200 for automatic / all-buyers scopes) (id, business_name, geography, tier), selected cohort id/name label. jsonb scalar. service_role only.';

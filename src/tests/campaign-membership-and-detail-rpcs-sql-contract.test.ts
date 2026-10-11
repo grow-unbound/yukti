@@ -24,6 +24,10 @@ describe('flush_buyer_membership migration', () => {
     for (const re of SERVICE_ROLE_ONLY('app.flush_buyer_membership(uuid, uuid)')) expect(sql).toMatch(re);
     expect(sql).toContain('SECURITY DEFINER');
     expect(sql).toContain('FOR UPDATE SKIP LOCKED');
+    expect(sql).toContain("hashtextextended('app.membership_refresh_tick_run', 0)");
+    expect(sql).toContain('pg_try_advisory_xact_lock(c_lock_key)');
+    expect(sql).toContain("SET statement_timeout TO '3s'");
+    expect(sql).toContain('w.next_attempt_at <= now()');
     expect(sql).toContain('membership_runtime_control');
     expect(sql).toContain("entity_type = 'buyer_candidate'");
     expect(sql).toContain("w.state = 'pending'");
@@ -33,7 +37,9 @@ describe('flush_buyer_membership migration', () => {
   it('uses the same evaluators as the tick and swallows evaluator errors (row stays pending)', () => {
     expect(sql).toContain('app.evaluate_buyer_for_cohorts_v2(p_buyer_id)');
     expect(sql).toContain('app.evaluate_buyer_for_campaign_buyers(p_buyer_id)');
-    expect(sql).toMatch(/EXCEPTION WHEN OTHERS THEN[\s\S]*RETURN false/);
+    expect(sql).toMatch(/WHEN query_canceled THEN[\s\S]*RETURN 'failed'/);
+    expect(sql).toMatch(/WHEN OTHERS THEN[\s\S]*RETURN 'failed'/);
+    expect(sql).toContain("state = CASE WHEN v_attempts + 1 >= 5 THEN 'dead_letter'");
   });
 });
 
@@ -49,7 +55,10 @@ describe('campaign detail RPC migration', () => {
   it('returns a single jsonb scalar with explicit caps (no 1000-row PostgREST truncation)', () => {
     expect(sql.match(/RETURNS jsonb/g)?.length).toBe(2);
     expect(sql).not.toMatch(/RETURNS (SETOF|TABLE)/);
-    expect(sql).toContain('c_cap constant integer := 20000');
+    expect(sql).toContain('c_uuid_re'); // malformed scope_value entries are ignored, not 22P02
+    expect(sql).toContain('c_cap constant integer := 50000');
+    expect(sql).toContain("e.status IS DISTINCT FROM 'void'");
+    expect(sql).toContain('e.converted_to_order_id IS NULL');
     expect(sql).toContain('c_cap constant integer := 5000');
     expect(sql).toContain("'truncated'");
   });
@@ -71,5 +80,7 @@ describe('product velocity RPC migration', () => {
     expect(sql).not.toMatch(/FROM app\.metrics_product_snapshot/);
     expect(sql).toContain("s.grain = 'month'");
     expect(sql).toContain('c_max_ids constant integer := 1000');
+    expect(sql).toContain("RAISE EXCEPTION 'too_many_product_ids'");
+    expect(sql).toContain('CREATE INDEX IF NOT EXISTS idx_invoice_items_product_invoice');
   });
 });

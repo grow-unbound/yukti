@@ -8,13 +8,23 @@
 -- app.metrics_product_period_summary (grains: month, quarter). This function derives a ~90 day
 -- unit rate from the current + 2 previous IST month buckets and normalises it to 90 days by the
 -- actual number of days covered, so callers can keep dividing by (90 / 7) weeks. last_invoice_at
--- keeps the original canonical-date definition (invoice_date at IST, falling back to created_at),
--- served by idx_invoice_items_product_invoice (tenant_product_id, invoice_id).
+-- keeps the original canonical-date definition (invoice_date at IST, falling back to created_at; no
+-- invoice-status filter, as before), served by idx_invoice_items_product_invoice
+-- (tenant_product_id, invoice_id). That index exists on yukti-prod but was never in a migration, so
+-- it is created here IF NOT EXISTS (same definition) to remove the dev/prod drift.
+--
+-- Limits: the month buckets are refreshed by the metrics tick, so while it is stalled the current
+-- month under-counts and the rate is understated (no staleness signal is returned). Callers must
+-- chunk id lists to <= 1000; longer inputs are rejected rather than silently truncated.
 --
 -- days_cover is NOT returned here: it needs the caller's per-location available stock, which the
 -- route already loads (loadInventoryAvailabilityMap); it derives cover = available / (units/90).
 --
--- Product ids come in the POST body (no URL length limit), capped at 1000.
+-- Product ids come in the POST body (no URL length limit), at most 1000 per call.
+
+CREATE INDEX IF NOT EXISTS idx_invoice_items_product_invoice
+  ON app.invoice_items USING btree (tenant_product_id, invoice_id) INCLUDE (qty, line_total)
+  WHERE (deleted_at IS NULL);
 
 CREATE OR REPLACE FUNCTION app.get_product_velocity_90d(p_tenant_id uuid, p_product_ids uuid[])
 RETURNS TABLE (
@@ -39,7 +49,10 @@ BEGIN
     RETURN;
   END IF;
 
-  v_ids := p_product_ids[1:c_max_ids];
+  IF cardinality(p_product_ids) > c_max_ids THEN
+    RAISE EXCEPTION 'too_many_product_ids' USING ERRCODE = '22023', DETAIL = format('max %s ids per call', c_max_ids);
+  END IF;
+  v_ids := p_product_ids;
   v_window_days := GREATEST(1, (v_today - v_window_start) + 1);
 
   RETURN QUERY
@@ -80,4 +93,4 @@ REVOKE ALL ON FUNCTION app.get_product_velocity_90d(uuid, uuid[]) FROM PUBLIC, a
 GRANT EXECUTE ON FUNCTION app.get_product_velocity_90d(uuid, uuid[]) TO service_role;
 
 COMMENT ON FUNCTION app.get_product_velocity_90d(uuid, uuid[]) IS
-  'Per-product ~90 day invoiced units (from metrics_product_period_summary month buckets, normalised to 90 days) and last invoice timestamp, for enquiry triage. At most 1000 ids. service_role only.';
+  'Per-product ~90 day invoiced units (from metrics_product_period_summary month buckets, normalised to 90 days) and last invoice timestamp, for enquiry triage. At most 1000 ids per call (raises above). service_role only.';

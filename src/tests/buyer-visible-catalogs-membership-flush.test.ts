@@ -13,7 +13,7 @@ const state: {
   campaigns: [],
   membership: [],
   membershipAfterFlush: [],
-  rpcResult: { data: false, error: null },
+  rpcResult: { data: 'none', error: null },
   flushed: false,
   rpcCalls: [],
 };
@@ -27,7 +27,7 @@ vi.mock('@/lib/supabase', () => ({
       return {
         rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
           state.rpcCalls.push({ fn, args });
-          if (state.rpcResult.data === true) state.flushed = true;
+          if (state.rpcResult.data === 'flushed') state.flushed = true;
           return state.rpcResult;
         }),
         from: (tableName: string) => {
@@ -96,7 +96,7 @@ describe('getVisibleBuyerCatalogs — membership flush for newly enabled buyers'
     state.campaigns = [cohortCampaign];
     state.membership = [];
     state.membershipAfterFlush = [{ cohort_id: 'cohort-1' }];
-    state.rpcResult = { data: false, error: null };
+    state.rpcResult = { data: 'none', error: null };
     state.flushed = false;
     state.rpcCalls = [];
   });
@@ -107,7 +107,7 @@ describe('getVisibleBuyerCatalogs — membership flush for newly enabled buyers'
   });
 
   it('flushes pending membership and shows the campaign when the buyer was not yet in the cohort', async () => {
-    state.rpcResult = { data: true, error: null };
+    state.rpcResult = { data: 'flushed', error: null };
     const { getVisibleBuyerCatalogs } = await import('@/lib/server/buyer-access');
 
     const catalogs = await getVisibleBuyerCatalogs('tenant-1', 'buyer-1');
@@ -129,7 +129,7 @@ describe('getVisibleBuyerCatalogs — membership flush for newly enabled buyers'
   });
 
   it('keeps the campaign hidden and remembers "nothing pending" briefly when no work was flushed', async () => {
-    state.rpcResult = { data: false, error: null };
+    state.rpcResult = { data: 'none', error: null };
     const { getVisibleBuyerCatalogs } = await import('@/lib/server/buyer-access');
 
     expect(await getVisibleBuyerCatalogs('tenant-1', 'buyer-1')).toEqual([]);
@@ -138,6 +138,15 @@ describe('getVisibleBuyerCatalogs — membership flush for newly enabled buyers'
 
     vi.setSystemTime(new Date('2026-10-11T10:01:00+05:30'));
     await getVisibleBuyerCatalogs('tenant-1', 'buyer-1');
+    expect(state.rpcCalls).toHaveLength(2);
+  });
+
+  it("does not remember a 'busy' answer (the tick is running) so the next call retries", async () => {
+    state.rpcResult = { data: 'busy', error: null };
+    const { getVisibleBuyerCatalogs } = await import('@/lib/server/buyer-access');
+
+    expect(await getVisibleBuyerCatalogs('tenant-1', 'buyer-1')).toEqual([]);
+    expect(await getVisibleBuyerCatalogs('tenant-1', 'buyer-1')).toEqual([]);
     expect(state.rpcCalls).toHaveLength(2);
   });
 

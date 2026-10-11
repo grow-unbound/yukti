@@ -1466,7 +1466,9 @@ export async function mintSellerSession(
 // General list while an estimate placed after the tick is campaign-priced. When a published cohort
 // campaign targets a cohort the buyer is not (yet) in, flush that ONE buyer's pending membership
 // work synchronously (app.flush_buyer_membership) and re-read membership.
-// "Nothing pending" answers are remembered briefly so repeated calls in one page load cost nothing.
+// Scope: only cohort-scoped campaigns are handled (buyerMatchesCatalog consults cohort membership
+// for no other scope). Results are remembered per server instance for a short TTL so repeated
+// calls in one page load cost nothing; 'busy' (tick running) is deliberately not cached.
 const MEMBERSHIP_FLUSH_NEGATIVE_TTL_MS = 30_000;
 const MEMBERSHIP_FLUSH_NEGATIVE_MAX = 5_000;
 const membershipFlushNegativeUntil = new Map<string, number>();
@@ -1478,26 +1480,32 @@ async function flushPendingBuyerMembership(tenantId: string, buyerId: string): P
   const skipUntil = membershipFlushNegativeUntil.get(key);
   if (skipUntil !== undefined && skipUntil > now) return false;
 
+  const rememberNothingToDo = () => {
+    if (membershipFlushNegativeUntil.size >= MEMBERSHIP_FLUSH_NEGATIVE_MAX) membershipFlushNegativeUntil.clear();
+    membershipFlushNegativeUntil.set(key, now + MEMBERSHIP_FLUSH_NEGATIVE_TTL_MS);
+  };
+
   try {
     const { data, error } = await supabaseAdmin
       .schema('app')
       .rpc('flush_buyer_membership', { p_tenant_id: tenantId, p_buyer_id: buyerId });
     if (error) {
       console.error('[getVisibleBuyerCatalogs] flush_buyer_membership failed', error.message);
+      rememberNothingToDo();
       return false;
     }
-    if (data === true) {
+    if (data === 'flushed') {
       membershipFlushNegativeUntil.delete(key);
       return true;
     }
+    if (data === 'busy') return false; // tick/another flush is running: retry on the next call
+    rememberNothingToDo(); // 'none' | 'failed' (the tick owns retries/backoff)
+    return false;
   } catch (err) {
     console.error('[getVisibleBuyerCatalogs] flush_buyer_membership threw', err);
+    rememberNothingToDo();
     return false;
   }
-
-  if (membershipFlushNegativeUntil.size >= MEMBERSHIP_FLUSH_NEGATIVE_MAX) membershipFlushNegativeUntil.clear();
-  membershipFlushNegativeUntil.set(key, now + MEMBERSHIP_FLUSH_NEGATIVE_TTL_MS);
-  return false;
 }
 
 export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string): Promise<BuyerVisibleCatalog[]> {
