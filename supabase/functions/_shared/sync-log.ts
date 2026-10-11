@@ -18,6 +18,8 @@
 let seq = 0;
 
 function syncDebugEnabled(): boolean {
+  // `Deno` is absent when this module is imported under vitest/Node.
+  if (typeof Deno === 'undefined') return false;
   const value = Deno.env.get('SYNC_LOG_LEVEL') ?? Deno.env.get('LOG_LEVEL') ?? '';
   return value.toLowerCase() === 'debug';
 }

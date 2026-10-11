@@ -33,6 +33,15 @@ Item format:
 - why: cost two queries + a stash run to establish; prod entries are user-visible noise until the migration is applied (needs explicit prod authorization).
 - cost: ~3 lines MEMORY index + one memory file; on-demand
 
+### 2026-10-11 fix/zoho-item-gst-rate — Zoho India GST rates live in item_tax_preferences; vitest red masked by Deno guard
+- [ ] target: .claude/rules (new or integrations rule, path-scoped to supabase/functions/_shared/integrations-*.ts)   change: add
+- text: `Zoho India GST orgs return top-level item tax_percentage=0; real rates are in /items list item_tax_preferences[] (tax_specification intra|inter). Use resolveZohoItemGstRate. No detail fetch needed. Verified against real dev payload 2026-10-11.`
+- why: all 459 d601c35c products synced gst_rate=0; assumed a detail fetch was needed until a live probe showed the list already carries it.
+- cost: 2 lines, path-scoped
+- [ ] target: MEMORY.md (project)   change: add
+- text: `Zoho test suites zoho-customer-transaction-sync (3 tests) and zoho-transaction-sync (1) are red on main since before 2026-10-11 (stub lacks .not, R2 source_payload assertions stale, phase plan has 5 not 3 phases); were masked by "Deno is not defined" until sync-log.ts guard.`
+- why: wrap gate stays red on any Zoho persist change until these are fixed; costs a stash comparison to prove pre-existing.
+- cost: 2 lines MEMORY index + one memory file; on-demand
 ### 2026-10-11 fix/campaign-visibility-detail-rpc-velocity — campaign price vs resolve_price: where the override lives and why browse and estimate disagreed
 - [ ] target: MEMORY.md (project)   change: add
 - text: `Campaign pricing (found 2026-10-11): app.resolve_price / resolve_prices_batch know nothing about campaigns. The campaign price is campaign_items.price_override, layered in the app (enrichBuyerProducts, buyer-assemble-catalog-items, checkout resolveAuthoritativePrices) only for campaigns returned by getVisibleBuyerCatalogs, which for cohort scope needs an OPEN cohort_members row. Membership lands via the dirty-work tick (up to 15 min), so a newly enabled buyer saw General in browse but Error on the estimate. inferCampaignIdForBuyerCart trusts a client campaign_id (share links are audience-open). Fix: app.flush_buyer_membership called from getVisibleBuyerCatalogs. Campaign 2b589a49 (tenant d601c35c) is cohort-scoped to 118f6a96, price list Error; cohort->price-list assignment is deliberately NOT used.`
