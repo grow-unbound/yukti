@@ -34,6 +34,15 @@ describe('resolveZohoItemGstRate', () => {
     ).toBe(0);
   });
 
+  it('ignores malformed preference entries', () => {
+    expect(
+      resolveZohoItemGstRate({
+        tax_percentage: 12,
+        item_tax_preferences: [null, 'x', pref('intra', 'abc' as never)],
+      }),
+    ).toBe(12);
+  });
+
   it('falls back to top-level fields for non-GST payloads', () => {
     expect(resolveZohoItemGstRate({ tax_percentage: 12 })).toBe(12);
     expect(resolveZohoItemGstRate({ gst_rate: '5' })).toBe(5);
