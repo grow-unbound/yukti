@@ -1461,6 +1461,45 @@ export async function mintSellerSession(
 
 // ---------------------------------------------------------------------------
 
+// A buyer enabled in the seller app only joins cohort-scoped campaigns once the membership tick
+// (every 15 min) drains their pending `buyer_candidate` row. Until then browse would price from the
+// General list while an estimate placed after the tick is campaign-priced. When a published cohort
+// campaign targets a cohort the buyer is not (yet) in, flush that ONE buyer's pending membership
+// work synchronously (app.flush_buyer_membership) and re-read membership.
+// "Nothing pending" answers are remembered briefly so repeated calls in one page load cost nothing.
+const MEMBERSHIP_FLUSH_NEGATIVE_TTL_MS = 30_000;
+const MEMBERSHIP_FLUSH_NEGATIVE_MAX = 5_000;
+const membershipFlushNegativeUntil = new Map<string, number>();
+
+async function flushPendingBuyerMembership(tenantId: string, buyerId: string): Promise<boolean> {
+  if (!supabaseAdmin) return false;
+  const key = `${tenantId}:${buyerId}`;
+  const now = Date.now();
+  const skipUntil = membershipFlushNegativeUntil.get(key);
+  if (skipUntil !== undefined && skipUntil > now) return false;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .schema('app')
+      .rpc('flush_buyer_membership', { p_tenant_id: tenantId, p_buyer_id: buyerId });
+    if (error) {
+      console.error('[getVisibleBuyerCatalogs] flush_buyer_membership failed', error.message);
+      return false;
+    }
+    if (data === true) {
+      membershipFlushNegativeUntil.delete(key);
+      return true;
+    }
+  } catch (err) {
+    console.error('[getVisibleBuyerCatalogs] flush_buyer_membership threw', err);
+    return false;
+  }
+
+  if (membershipFlushNegativeUntil.size >= MEMBERSHIP_FLUSH_NEGATIVE_MAX) membershipFlushNegativeUntil.clear();
+  membershipFlushNegativeUntil.set(key, now + MEMBERSHIP_FLUSH_NEGATIVE_TTL_MS);
+  return false;
+}
+
 export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string): Promise<BuyerVisibleCatalog[]> {
   if (!supabaseAdmin) {
     throw new Error('Server configuration error');
@@ -1494,7 +1533,7 @@ export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string)
   if (buyerRes.error) throw new Error(buyerRes.error.message);
   if (cohortMembershipRes.error) throw new Error(cohortMembershipRes.error.message);
 
-  const explicitCohorts = new Set(
+  let explicitCohorts = new Set(
     ((cohortMembershipRes.data ?? []) as Array<{ cohort_id: string }>).map((row) => row.cohort_id),
   );
   const buyerData = (buyerRes.data as {
@@ -1503,8 +1542,26 @@ export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string)
   } | null);
   const buyerDefaultCohortId = buyerData?.default_cohort_id ?? null;
   const buyerGeography = buyerData?.geography ?? null;
+  const catalogs = (catalogsRes.data ?? []) as BuyerVisibleCatalog[];
 
-  return ((catalogsRes.data ?? []) as BuyerVisibleCatalog[]).filter((catalog) =>
+  const hasUnmatchedCohortCampaign = catalogs.some((catalog) => {
+    if (catalog.scope_type !== 'cohort' || !isCatalogVisibleOnCurrentIstDay(catalog.valid_to)) return false;
+    const cohortId = ((catalog.scope_value ?? {}) as { cohort_id?: string }).cohort_id;
+    return Boolean(cohortId) && !explicitCohorts.has(cohortId as string) && buyerDefaultCohortId !== cohortId;
+  });
+
+  if (hasUnmatchedCohortCampaign && (await flushPendingBuyerMembership(tenantId, buyerId))) {
+    const refreshed = await db
+      .schema('app')
+      .from('cohort_members_active')
+      .select('cohort_id')
+      .eq('buyer_id', buyerId);
+    if (!refreshed.error) {
+      explicitCohorts = new Set(((refreshed.data ?? []) as Array<{ cohort_id: string }>).map((row) => row.cohort_id));
+    }
+  }
+
+  return catalogs.filter((catalog) =>
     isCatalogVisibleOnCurrentIstDay(catalog.valid_to)
     && buyerMatchesCatalog(catalog, buyerId, buyerDefaultCohortId, explicitCohorts, buyerGeography),
   );

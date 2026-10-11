@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { BuyerCatalogItem } from '@/types/buyer';
 import { enrichBuyerProducts } from '@/lib/server/buyer-product-data';
 import { getVisibleBuyerCatalogs } from '@/lib/server/buyer-access';
+import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
 import type { GuestPricingContext, PublicCatalogRecord } from '@/lib/server/public-catalog';
 
 type CampaignMapEntry = {
@@ -100,8 +101,8 @@ export async function assembleBuyerCatalogItemsForProductIds(
         display_order: number | null;
         is_featured?: boolean | null;
       }>).sort((a, b) => {
-        const aHasOverride = a.price_override != null ? 0 : 1;
-        const bHasOverride = b.price_override != null ? 0 : 1;
+        const aHasOverride = campaignOverridePrice(a.price_override) != null ? 0 : 1;
+        const bHasOverride = campaignOverridePrice(b.price_override) != null ? 0 : 1;
         if (aHasOverride !== bHasOverride) return aHasOverride - bHasOverride;
 
         const campaignRank = (campaignPriority.get(a.campaign_id) ?? Number.MAX_SAFE_INTEGER)
@@ -119,7 +120,7 @@ export async function assembleBuyerCatalogItemsForProductIds(
           campaign_id: campaign.id,
           campaign_name: campaign.name,
           campaign_valid_until: campaign.valid_to,
-          campaign_price: row.price_override,
+          campaign_price: campaignOverridePrice(row.price_override),
           is_featured: Boolean(row.is_featured),
         });
       }
