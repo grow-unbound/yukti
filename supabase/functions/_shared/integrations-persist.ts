@@ -423,6 +423,24 @@ function pickNumber(...values: unknown[]): number | null {
   return null;
 }
 
+/**
+ * GST rate for a Zoho item. India GST orgs leave top-level `tax_percentage` at 0
+ * and carry the real rates in `item_tax_preferences[]` (one entry per
+ * `tax_specification`: `intra` = CGST+SGST group, `inter` = IGST). Prefer intra,
+ * then inter; fall back to the top-level fields for non-GST orgs.
+ */
+export function resolveZohoItemGstRate(rec: Record<string, unknown>): number | null {
+  const prefs = Array.isArray(rec.item_tax_preferences)
+    ? rec.item_tax_preferences.filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null)
+    : [];
+  for (const spec of ['intra', 'inter']) {
+    const pref = prefs.find((p) => p.tax_specification === spec);
+    const rate = pref ? asNum(pref.tax_percentage) : null;
+    if (rate !== null) return rate;
+  }
+  return pickNumber(rec.tax_percentage, rec.gst_rate);
+}
+
 function resolveLineTotal(line: Record<string, unknown>, lineIndex: number): number {
   const itemTotal = pickNumber(line.item_total, line.total, line.amount);
   if (itemTotal !== null) return itemTotal;
@@ -2515,7 +2533,7 @@ async function persistProducts(
       base_selling_price: asNum(rec.rate),
       cost_price: asNum(rec.purchase_rate),
       mrp: asNum(rec.pricebook_rate),
-      gst_rate: pickNumber(rec.tax_percentage, rec.gst_rate),
+      gst_rate: resolveZohoItemGstRate(rec),
       pack_size: pickNumber(rec.pack_size, rec.pack_quantity, rec.unit_conversion),
       image_urls: Array.isArray(rec.image_urls)
         ? rec.image_urls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
