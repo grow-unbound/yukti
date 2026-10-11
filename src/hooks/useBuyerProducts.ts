@@ -19,12 +19,14 @@ import {
   BUYER_REFERENCE_QUERY_GC_TIME,
   BUYER_PRICE_QUERY_STALE_TIME,
   BUYER_PRICE_QUERY_GC_TIME,
+  BUYER_PDP_QUERY_STALE_TIME,
+  BUYER_PDP_QUERY_GC_TIME,
 } from '@/lib/query-navigation';
 
 export type BuyerProductDetailApiResponse = { item: BuyerCatalogItem };
 export type BuyerProductFamilyDetailApiResponse = BuyerProductFamilyDetail;
 
-const EMPTY_RECOS: BuyerProductPageRecos = { co_order: [], co_buyer: [], same_category: [] };
+export const EMPTY_RECOS: BuyerProductPageRecos = { co_order: [], co_buyer: [], same_category: [] };
 
 export function buyerProductDetailQueryKey(tenantProductId: string, stockSignature: string) {
   return ['buyer-product-detail', tenantProductId, stockSignature] as const;
@@ -50,7 +52,11 @@ export function buyerProductRecommendationsUrl(tenantProductId: string): string 
   return `/api/buyer/recommendations?product_id=${encodeURIComponent(tenantProductId)}`;
 }
 
-/** Warm both PDP queries on pointerdown — shared by ProductCard / search. */
+/**
+ * Warm the PDP detail query on pointerdown — shared by ProductCard / search. Recommendations are
+ * deliberately not prefetched: they load when the rail nears the viewport (useInViewOnce), so a
+ * tap that never scrolls to them costs no reco RPC + 8-product pricing pass.
+ */
 export function prefetchBuyerProductDetail(
   queryClient: QueryClient,
   tenantProductId: string,
@@ -60,15 +66,8 @@ export function prefetchBuyerProductDetail(
     queryKey: buyerProductDetailQueryKey(tenantProductId, stockSignature),
     queryFn: async () =>
       fetchJson<BuyerProductDetailApiResponse>(buyerProductDetailUrl(tenantProductId), { fresh: true }),
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
-  });
-  void queryClient.prefetchQuery({
-    queryKey: buyerProductRecommendationsQueryKey(tenantProductId),
-    queryFn: async () =>
-      fetchJson<BuyerProductPageRecos>(buyerProductRecommendationsUrl(tenantProductId)),
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
+    staleTime: BUYER_PDP_QUERY_STALE_TIME,
+    gcTime: BUYER_PDP_QUERY_GC_TIME,
   });
 }
 
@@ -272,14 +271,18 @@ export function useBuyerCampaignShareName(shareToken: string) {
   });
 }
 
-export function useBuyerProductRecommendations(tenantProductId: string) {
+/** `enabled: false` defers the fetch (e.g. until the rail is near the viewport). */
+export function useBuyerProductRecommendations(
+  tenantProductId: string,
+  options?: { enabled?: boolean },
+) {
   return useQuery<BuyerProductPageRecos>({
     queryKey: buyerProductRecommendationsQueryKey(tenantProductId),
     queryFn: async () =>
       fetchJson<BuyerProductPageRecos>(buyerProductRecommendationsUrl(tenantProductId)),
-    enabled: Boolean(tenantProductId),
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
+    enabled: Boolean(tenantProductId) && (options?.enabled ?? true),
+    staleTime: BUYER_PDP_QUERY_STALE_TIME,
+    gcTime: BUYER_PDP_QUERY_GC_TIME,
   });
 }
 
@@ -291,19 +294,16 @@ export function useBuyerProductDetail(tenantProductId: string) {
     queryFn: async () =>
       fetchJson<BuyerProductDetailApiResponse>(buyerProductDetailUrl(tenantProductId), { fresh: true }),
     enabled: Boolean(tenantProductId),
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
+    staleTime: BUYER_PDP_QUERY_STALE_TIME,
+    gcTime: BUYER_PDP_QUERY_GC_TIME,
   });
 
   const item = productQuery.data?.item ?? null;
-  const recommendationsQuery = useBuyerProductRecommendations(tenantProductId);
 
   return {
     item,
-    recos: recommendationsQuery.data ?? EMPTY_RECOS,
     isLoading: productQuery.isLoading,
     isError: productQuery.isError || (!productQuery.isLoading && !item),
-    isRecosLoading: recommendationsQuery.isLoading,
   };
 }
 
@@ -315,8 +315,8 @@ export function useBuyerProductFamilyDetail(productFamilyId: string) {
     queryFn: async () =>
       fetchJson<BuyerProductFamilyDetailApiResponse>(buyerProductFamilyDetailUrl(productFamilyId), { fresh: true }),
     enabled: Boolean(productFamilyId),
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
+    staleTime: BUYER_PDP_QUERY_STALE_TIME,
+    gcTime: BUYER_PDP_QUERY_GC_TIME,
   });
 
   return {

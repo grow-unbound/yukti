@@ -15,7 +15,12 @@ import { BuyerDetailShell } from '@/components/buyer/layout/BuyerDetailShell';
 import { BuyerFixedFooter } from '@/components/buyer/layout/BuyerFixedFooter';
 import { BUYER_PREVIEW_MAX_WIDTH } from '@/lib/buyer-preview';
 import { BUYER_CARD_RADIUS_CLASS, getBuyerProductPrimaryImageUrl, guestPriceReveal, hasBuyerCampaignPrice, hasVisibleBuyerPrice, isHiddenPriceEnquiryMode } from '@/lib/buyer-ui';
-import { useBuyerProductDetail } from '@/hooks/useBuyerProducts';
+import {
+  EMPTY_RECOS,
+  useBuyerProductDetail,
+  useBuyerProductRecommendations,
+} from '@/hooks/useBuyerProducts';
+import { useInViewOnce } from '@/hooks/useInViewOnce';
 import { useBuyerAnalyticsIds } from '@/lib/analytics-identity';
 import { useBuyerAnalyticsProperties } from '@/lib/buyer-analytics';
 
@@ -35,11 +40,14 @@ export function BuyerProductDetailClient({ tenantProductId }: BuyerProductDetail
   const stockVisible = meData?.stock_visibility?.enabled ?? false;
   const {
     item,
-    recos,
     isLoading: productLoading,
     isError: productError,
-    isRecosLoading,
   } = useBuyerProductDetail(tenantProductId);
+  // Recos (reco RPC + 8-product pricing pass) load only once the rail is near the viewport.
+  const [recoRailRef, recoRailNear] = useInViewOnce();
+  const recosQuery = useBuyerProductRecommendations(tenantProductId, { enabled: recoRailNear });
+  const recos = recosQuery.data ?? EMPTY_RECOS;
+  const isRecosLoading = recosQuery.isPending;
   // Prefer the product's own same-request-fresh catalog_pricing_mode over
   // meData.guest_pricing_mode, which is a 15-min-stale reference query and
   // can drift out of sync with the catalog's actual current pricing mode.
@@ -55,6 +63,11 @@ export function BuyerProductDetailClient({ tenantProductId }: BuyerProductDetail
   const [targetMin, setTargetMin] = React.useState('');
   const [targetMax, setTargetMax] = React.useState('');
   const viewedKeyRef = React.useRef<string | null>(null);
+
+  // The server page no longer looks the title up (a DB read per open); the detail payload carries it.
+  React.useEffect(() => {
+    if (item?.display_name) document.title = item.display_name;
+  }, [item?.display_name]);
 
   React.useEffect(() => {
     if (!item || viewedKeyRef.current === item.tenant_product_id) return;
@@ -424,16 +437,18 @@ export function BuyerProductDetailClient({ tenantProductId }: BuyerProductDetail
         {/* Reco rail — title + skeleton while loading; hide after settle if empty.
             "Frequently Bought Together" (co_order) was dropped to cut a reco widget
             off the PDP's data/compute path — see recommendations route. */}
-        <RecoSection
-          title={categoryRecoTitle}
-          widget="same_category"
-          items={recos.same_category}
-          sourceProductId={tenantProductId}
-          isLoading={isRecosLoading}
-          sectionClassName="px-3 pb-3"
-          scrollClassName="gap-3 px-3"
-          priceReveal={priceReveal}
-        />
+        <div ref={recoRailRef}>
+          <RecoSection
+            title={categoryRecoTitle}
+            widget="same_category"
+            items={recos.same_category}
+            sourceProductId={tenantProductId}
+            isLoading={isRecosLoading}
+            sectionClassName="px-3 pb-3"
+            scrollClassName="gap-3 px-3"
+            priceReveal={priceReveal}
+          />
+        </div>
       </BuyerDetailShell>
 
       {/* Sticky footer — price + Add / qty stepper (mobile only; desktop uses inline CTA above) */}

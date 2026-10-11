@@ -14,6 +14,7 @@ import { useStorefrontLogin } from '@/contexts/StorefrontLoginContext';
 import { navigateBuyerBack } from '@/hooks/useBuyerNavigationDirection';
 import { useBuyerMe } from '@/hooks/useBuyerMe';
 import { useBuyerProductFamilyDetail, useBuyerProductRecommendations } from '@/hooks/useBuyerProducts';
+import { useInViewOnce } from '@/hooks/useInViewOnce';
 import { useBuyerAnalyticsIds } from '@/lib/analytics-identity';
 import { BUYER_CARD_RADIUS_CLASS, getBuyerProductPrimaryImageUrl, guestPriceReveal, hasVisibleBuyerPrice, isHiddenPriceEnquiryMode } from '@/lib/buyer-ui';
 import { BUYER_PREVIEW_MAX_WIDTH } from '@/lib/buyer-preview';
@@ -62,7 +63,8 @@ export function BuyerProductFamilyDetailClient({ productFamilyId }: BuyerProduct
   const canClickResolvedSku = Boolean(selectedSku && (canAddResolvedSku || isGuest || priceReveal === 'login_cta'));
   const displayedPrice = selectedSku?.price ?? family?.price_summary?.min_price ?? family?.price ?? null;
   const recoProductId = selectedSku?.tenant_product_id ?? family?.tenant_product_id ?? '';
-  const recosQuery = useBuyerProductRecommendations(recoProductId);
+  const [recoRailRef, recoRailNear] = useInViewOnce();
+  const recosQuery = useBuyerProductRecommendations(recoProductId, { enabled: recoRailNear });
   const categoryRecoTitle = family?.category_name ? `More in ${family.category_name}` : 'More in this category';
   const taxLabel = selectedSku?.gst_rate != null
     ? `${selectedSku.gst_rate}% GST`
@@ -323,16 +325,18 @@ export function BuyerProductFamilyDetailClient({ productFamilyId }: BuyerProduct
           </div>
         </div>
 
-        <RecoSection
-          title={categoryRecoTitle}
-          widget="same_category"
-          items={recosQuery.data?.same_category ?? []}
-          sourceProductId={recoProductId}
-          isLoading={recosQuery.isLoading}
-          sectionClassName="px-3 pb-3"
-          scrollClassName="gap-3 px-3"
-          priceReveal={priceReveal}
-        />
+        <div ref={recoRailRef}>
+          <RecoSection
+            title={categoryRecoTitle}
+            widget="same_category"
+            items={recosQuery.data?.same_category ?? []}
+            sourceProductId={recoProductId}
+            isLoading={Boolean(recoProductId) && recosQuery.isPending}
+            sectionClassName="px-3 pb-3"
+            scrollClassName="gap-3 px-3"
+            priceReveal={priceReveal}
+          />
+        </div>
       </BuyerDetailShell>
 
       <BuyerFixedFooter
