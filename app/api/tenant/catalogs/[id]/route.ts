@@ -21,7 +21,6 @@ import {
   getCampaignBuyerOpenedStatus,
   groupLineItemsByParent,
   isEligibleCampaignEstimate,
-  isEligibleCampaignOrder,
   type CampaignEstimateRow,
   type CampaignItemMembershipWindow,
   type CampaignOrderRow,
@@ -311,7 +310,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const campaignQuarterMeta = getSellerLandingPeriodMeta('quarter');
   const campaignQuarterStart = campaignQuarterMeta.current_start.slice(0, 10);
 
-  const [catalogRes, itemsRes, ordersRes, estimatesRes, viewsRes, composerPayload, campaignPeriodRes] = await Promise.all([
+  const [catalogRes, itemsRes, ordersRes, estimatesRes, viewsRes, composerPayload, campaignPeriodRes, audienceRes, lineItemsRes, createFlags] = await Promise.all([
     db
       .schema('app')
       .from('campaigns')
@@ -357,12 +356,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .eq('period_start', campaignQuarterStart)
       .is('deleted_at', null)
       .maybeSingle(),
+    // Audience and line items are resolved server-side. Sending id lists as GET filters exceeded
+    // the request URL limit (HTTP 400) on large campaigns and hit PostgREST's 1000-row cap.
+    db.schema('app').rpc('get_campaign_audience_buyers', { p_tenant_id: claims.tenant_id, p_campaign_id: id }),
+    db.schema('app').rpc('get_campaign_attributed_line_items', { p_tenant_id: claims.tenant_id, p_campaign_id: id }),
+    getInAppCreateFlags(claims.tenant_id),
   ]);
 
   if (catalogRes.error) return NextResponse.json({ error: 'Catalog not found' }, { status: 404 });
   if (itemsRes.error || ordersRes.error || estimatesRes.error || viewsRes.error || campaignPeriodRes.error) {
     return NextResponse.json({ error: 'Failed to load catalog detail' }, { status: 500 });
   }
+  if (audienceRes.error) return NextResponse.json({ error: 'Failed to load buyers' }, { status: 500 });
+  if (lineItemsRes.error) return NextResponse.json({ error: 'Failed to load line items' }, { status: 500 });
   const campaignQuarter = (campaignPeriodRes.data ?? null) as {
     viewed_buyer_count: number;
     view_count: number;
@@ -443,151 +449,45 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   type BuyerRow = { id: string; business_name: string; geography: unknown; tier: string | null };
 
-  let scopedBuyerIds: string[] = [];
-  let selectedCohortId: string | null = null;
-  let selectedCohortName = 'All buyers';
-  // buyers[] in the response below is only a pre-hydration fallback -- the real
-  // paginated/filterable Buyers-tab table is served by GET .../buyers
-  // (app.search_catalog_buyers, already bounded and already automatic-mode-aware).
-  // So the automatic/all-buyers branches below only need a small sample for that
-  // fallback, not the full membership list.
-  const FALLBACK_BUYER_SAMPLE_LIMIT = 50;
-
-  if (catalog.scope_type === 'cohort' && scopeValue.cohort_id) {
-    selectedCohortId = scopeValue.cohort_id;
-    const [membersRes, cohortRes] = await Promise.all([
-      db.schema('app').from('cohort_members_active').select('buyer_id').eq('cohort_id', scopeValue.cohort_id),
-      db.schema('app').from('cohorts').select('name').eq('id', scopeValue.cohort_id).maybeSingle(),
-    ]);
-
-    if (membersRes.error) return NextResponse.json({ error: 'Failed to load cohort members' }, { status: 500 });
-    scopedBuyerIds = ((membersRes.data ?? []) as Array<{ buyer_id: string }>).map((row) => row.buyer_id);
-    if (!cohortRes.error && cohortRes.data?.name) selectedCohortName = cohortRes.data.name;
-  } else if (catalog.scope_type === 'buyer' && scopeValue.buyer_id) {
-    scopedBuyerIds = [scopeValue.buyer_id];
-    const buyerRes = await db.schema('app').from('buyers').select('business_name').eq('id', scopeValue.buyer_id).maybeSingle();
-    if (!buyerRes.error && buyerRes.data?.business_name) selectedCohortName = buyerRes.data.business_name;
-  } else if (catalog.scope_type === 'buyer' && scopeValue.buyer_ids && scopeValue.buyer_ids.length > 0) {
-    scopedBuyerIds = scopeValue.buyer_ids;
-    selectedCohortName = 'Selected buyers';
+  const audience = (audienceRes.data ?? {}) as {
+    member_count?: number;
+    selected_cohort_id?: string | null;
+    selected_cohort_name?: string | null;
+    buyers?: BuyerRow[];
+    truncated?: boolean;
+  };
+  if (audience.truncated) {
+    // Rows past the cap would silently drop from the ranked buyer list.
+    console.warn('[GET /api/tenant/catalogs/:id] audience exceeds RPC cap; buyer ranking is approximate', { campaignId: id });
   }
+  const selectedCohortId: string | null = audience.selected_cohort_id ?? null;
+  const selectedCohortName = audience.selected_cohort_name ?? 'All buyers';
+  const targetBuyerCount: number = Number(audience.member_count ?? 0);
+  const audienceBuyers: BuyerRow[] = audience.buyers ?? [];
+  const cohortMemberIds = audienceBuyers.map((buyer) => buyer.id);
+  const buyersById = new Map(audienceBuyers.map((buyer) => [buyer.id, buyer]));
 
-  // Automatic-mode / legacy-all-buyers fallback: a 'buyer' scope with no buyer_id/
-  // buyer_ids in scope_value is a rule-based (buyer_target_mode='automatic') campaign
-  // -- its true membership lives in app.campaign_buyer_members, not "every buyer in the
-  // tenant". Only scope_type 'geography'/'all' (or a genuinely static-empty legacy
-  // scope) actually means "all active buyers". Both branches fetch an exact count
-  // separately from a small bounded sample, instead of collecting every matching id
-  // and re-fetching via `.in()` -- on a tenant with thousands of buyers that id list
-  // blows the request's URL/size limit (PostgREST default 1000-row cap silently
-  // truncated this before).
-  let allBuyersData: BuyerRow[] | null = null;
-  let targetBuyerCount: number | null = null;
-
-  const isAutomaticOrAllBuyersFallback =
-    scopedBuyerIds.length === 0 &&
-    !(catalog.scope_type === 'cohort' && scopeValue.cohort_id) &&
-    !(catalog.scope_type === 'buyer' && scopeValue.buyer_id);
-
-  if (isAutomaticOrAllBuyersFallback && catalog.buyer_target_mode === 'automatic') {
-    const [countRes, sampleRes] = await Promise.all([
-      db.schema('app').from('campaign_buyer_members').select('id', { count: 'exact', head: true }).eq('campaign_id', catalog.id).is('valid_until', null),
-      db
-        .schema('app')
-        .from('campaign_buyer_members')
-        .select('buyers!inner(id, business_name, geography, tier)')
-        .eq('campaign_id', catalog.id)
-        .is('valid_until', null)
-        .limit(FALLBACK_BUYER_SAMPLE_LIMIT),
-    ]);
-
-    if (countRes.error) return NextResponse.json({ error: 'Failed to load campaign buyer members' }, { status: 500 });
-    if (sampleRes.error) return NextResponse.json({ error: 'Failed to load campaign buyer members' }, { status: 500 });
-
-    allBuyersData = (sampleRes.data ?? []).map((row) => (row as unknown as { buyers: BuyerRow }).buyers);
-    targetBuyerCount = countRes.count ?? 0;
-    scopedBuyerIds = allBuyersData.map((row) => row.id);
-    selectedCohortName = 'Targeted buyers';
-  } else if (isAutomaticOrAllBuyersFallback) {
-    const [countRes, sampleRes] = await Promise.all([
-      db.schema('app').from('buyers').select('id', { count: 'exact', head: true }).eq('tenant_id', claims.tenant_id).eq('is_active', true).is('deleted_at', null),
-      db
-        .schema('app')
-        .from('buyers')
-        .select('id, business_name, geography, tier')
-        .eq('tenant_id', claims.tenant_id)
-        .eq('is_active', true)
-        .is('deleted_at', null)
-        .limit(FALLBACK_BUYER_SAMPLE_LIMIT),
-    ]);
-
-    if (countRes.error) return NextResponse.json({ error: 'Failed to load buyers' }, { status: 500 });
-    if (sampleRes.error) return NextResponse.json({ error: 'Failed to load buyers' }, { status: 500 });
-
-    allBuyersData = sampleRes.data as BuyerRow[];
-    targetBuyerCount = countRes.count ?? 0;
-    scopedBuyerIds = allBuyersData.map((row) => row.id);
-    selectedCohortName = catalog.scope_type === 'all' ? 'All buyers' : 'Targeted buyers';
-  }
-
-  const cohortMemberIds = Array.from(new Set(scopedBuyerIds));
-  if (targetBuyerCount === null) targetBuyerCount = cohortMemberIds.length;
-
-  const buyersRes = allBuyersData
-    ? { data: allBuyersData, error: null }
-    : cohortMemberIds.length
-      ? await db
-          .schema('app')
-          .from('buyers')
-          .select('id, business_name, geography, tier')
-          .in('id', cohortMemberIds)
-          .is('deleted_at', null)
-      : { data: [], error: null };
-
-  if (buyersRes.error) return NextResponse.json({ error: 'Failed to load buyers' }, { status: 500 });
-
-  const buyersById = new Map(
-    ((buyersRes.data ?? []) as Array<{ id: string; business_name: string; geography: unknown; tier: string | null }>).map((buyer) => [
-      buyer.id,
-      buyer,
-    ]),
-  );
-
-  // Broader than the current-membership catalogItems list: includes products that were part
-  // of this campaign at some point in the past, so their historical line items are still
-  // fetched and can be point-in-time attributed below.
-  const tenantProductIds = Array.from(campaignItemWindowsByProduct.keys());
-  const orderIds = orders.map((order) => order.id);
-  const eligibleOrders = orders.filter(isEligibleCampaignOrder);
+  // get_campaign_attributed_line_items already restricts to products that were campaign members
+  // at some point (all membership windows), so historical lines can be point-in-time attributed below.
   const eligibleEstimates = estimates.filter(isEligibleCampaignEstimate);
-  const validOrderIds = new Set(eligibleOrders.map((order) => order.id));
   const validEstimateIds = new Set(eligibleEstimates.map((estimate) => estimate.id));
   const productMetaById = new Map(composerPayload.products.map((product) => [product.id, product]));
 
-  const [orderItemsRes, estimateItemsRes, createFlags] = await Promise.all([
-    orderIds.length && tenantProductIds.length
-      ? db
-          .schema('app')
-          .from('order_items')
-          .select('order_id, tenant_product_id, qty, line_total, unit_price')
-          .in('order_id', orderIds)
-          .in('tenant_product_id', tenantProductIds)
-          .is('deleted_at', null)
-      : Promise.resolve({ data: [], error: null }),
-    eligibleEstimates.length && tenantProductIds.length
-      ? db
-          .schema('app')
-          .from('estimate_items')
-          .select('estimate_id, tenant_product_id, qty, line_total, unit_price')
-          .in('estimate_id', Array.from(validEstimateIds))
-          .in('tenant_product_id', tenantProductIds)
-          .is('deleted_at', null)
-      : Promise.resolve({ data: [], error: null }),
-    getInAppCreateFlags(claims.tenant_id),
-  ]);
-
-  if (orderItemsRes.error || estimateItemsRes.error) {
-    return NextResponse.json({ error: 'Failed to load line items' }, { status: 500 });
+  type CampaignLineRow = {
+    parent_id: string;
+    tenant_product_id: string;
+    qty: number | null;
+    line_total: number | null;
+    unit_price: number | null;
+  };
+  const lineItems = (lineItemsRes.data ?? {}) as {
+    orders?: CampaignLineRow[];
+    estimates?: CampaignLineRow[];
+    truncated?: boolean;
+  };
+  if (lineItems.truncated) {
+    // Never aggregate a partial set: conversion/spend would be silently under-counted.
+    return NextResponse.json({ error: 'Campaign has too many line items to summarise' }, { status: 500 });
   }
 
   // Point-in-time attribution: a line item only counts toward this campaign if its product
@@ -597,20 +497,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const orderDateByParentId = new Map(orders.map((order) => [order.id, order.placed_at ?? order.created_at]));
   const estimateDateByParentId = new Map(estimates.map((estimate) => [estimate.id, estimate.created_at]));
 
-  const rawOrderItems = ((orderItemsRes.data ?? []) as Array<{
-    order_id: string;
-    tenant_product_id: string;
-    qty: number | null;
-    line_total: number | null;
-    unit_price: number | null;
-  }>).map((item) => ({ ...item, parent_id: item.order_id }));
-  const rawEstimateItems = ((estimateItemsRes.data ?? []) as Array<{
-    estimate_id: string;
-    tenant_product_id: string;
-    qty: number | null;
-    line_total: number | null;
-    unit_price: number | null;
-  }>).map((item) => ({ ...item, parent_id: item.estimate_id }));
+  // Orders: every campaign order's lines (as before). Estimates: eligible estimates only.
+  const rawOrderItems = lineItems.orders ?? [];
+  const rawEstimateItems = (lineItems.estimates ?? []).filter((item) => validEstimateIds.has(item.parent_id));
 
   const attributedOrderItems = filterLineItemsByMembershipWindow(rawOrderItems, orderDateByParentId, campaignItemWindowsByProduct);
   const attributedEstimateItems = filterLineItemsByMembershipWindow(rawEstimateItems, estimateDateByParentId, campaignItemWindowsByProduct);
