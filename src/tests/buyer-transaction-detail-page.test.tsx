@@ -21,6 +21,8 @@ vi.mock('@/contexts/BuyerCartContext', () => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => useRouterMock(),
+  usePathname: () => '/buy/orders/ord-1',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/components/buyer/layout/BuyerDetailShell', () => ({
@@ -49,6 +51,7 @@ describe('buyer transaction detail page GST presentation', () => {
   it('shows included-in-prices GST and keeps total equal to subtotal when the tenant policy is inclusive', async () => {
     useBuyerMeMock.mockReturnValue({
       data: {
+        tenant: { name: 'Acme Traders' },
         business_policy: { gst_inclusive: true, gst_rate: 18 },
       },
     });
@@ -123,7 +126,8 @@ describe('buyer transaction detail page GST presentation', () => {
   it('sets the tab title to the document number once the payload resolves', async () => {
     document.title = 'Order';
     useBuyerMeMock.mockReturnValue({
-      data: { business_policy: { gst_inclusive: false, gst_rate: 18 } },
+      data: { tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: false, gst_rate: 18 } },
     });
     apiFetchMock.mockResolvedValue({
       json: async () => ({
@@ -172,6 +176,7 @@ describe('buyer transaction detail page GST presentation', () => {
   it('computes GST extra from subtotal when the tenant policy is exclusive', async () => {
     useBuyerMeMock.mockReturnValue({
       data: {
+        tenant: { name: 'Acme Traders' },
         business_policy: { gst_inclusive: false, gst_rate: 18 },
       },
     });
