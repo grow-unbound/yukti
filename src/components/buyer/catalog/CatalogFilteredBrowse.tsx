@@ -231,6 +231,12 @@ export function CatalogFilteredBrowse({
         ? (selectedBrandName ?? 'Brand')
         : campaignTitle;
 
+  // Server page title is static; reflect the resolved category/brand name (tracks rail switches too).
+  const resolvedBrowseName = mode === 'category' ? selectedCategoryName : mode === 'brand' ? selectedBrandName : undefined;
+  React.useEffect(() => {
+    if (resolvedBrowseName) document.title = resolvedBrowseName;
+  }, [resolvedBrowseName]);
+
   const searchPlaceholder =
     mode === 'brand'
       ? `Search ${selectedBrandName ?? 'brand'} products`

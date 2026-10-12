@@ -455,6 +455,12 @@ export function TransactionDetailPage({
   const gstInclusive = meData?.business_policy.gst_inclusive ?? false;
   const gstRate = meData?.business_policy.gst_rate ?? 18;
 
+  // The server layout title is static; show the document number once the payload resolves.
+  const docNumber = doc?.docNumber?.trim();
+  React.useEffect(() => {
+    if (docNumber) document.title = docNumber;
+  }, [docNumber]);
+
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
