@@ -78,6 +78,18 @@ Item format:
 - why: gave real plpgsql execution (ambiguity, casts, kill switch, failure/backoff paths) for 3 RPCs in 5 calls with zero residue (verified: no leftover functions/rows); static contract tests alone had missed that the review needed it.
 - cost: 2 lines, path-scoped
 
+### 2026-10-13 docs/vercel-cost-review-2026-10 — PDP tier + fresh:true make HTTP max-age bumps a no-op
+- [ ] target: .claude/rules/data-fetching.md (Client-side query caching)   change: add
+- text: `Product/family detail and PDP recos use BUYER_PDP_QUERY_* (5 min stale), not BUYER_PRICE_* (15 s); cart/list/resolve stay on BUYER_PRICE_*. Detail fetches use fresh:true (no-store), so raising Cache-Control max-age on priced buyer routes saves nothing — the client stale tier is the lever. Load below-fold rails (recos) via useInViewOnce, never on pointerdown prefetch.`
+- why: Oct 9 analysis estimated 10-20% from an HTTP max-age bump; src/hooks/useBuyerProducts.ts prefetch uses fresh:true so it would have been a no-op. PDP triple (page + detail + recos) was ~50% of function Active CPU (Vercel Observability, 24h).
+- cost: 1-2 lines, path-scoped
+
+### 2026-10-13 docs/vercel-cost-review-2026-10 — no DB reads in generateMetadata for authenticated buyer pages
+- [ ] target: .claude/rules/data-fetching.md (Caching)   change: add
+- text: `Authenticated buyer pages: generateMetadata returns a static title; the client sets document.title from the payload it already fetches. A per-open DB lookup for a tab title is billed Fluid Active CPU on every navigation (guest ISR *ForTenant loaders are exempt: cached).`
+- why: #187/#191 removed title lookups from PDP, orders, estimates, invoices, category, brand pages (app/(buyer)/buy/**/layout.tsx|page.tsx); Active CPU is the metered Vercel cost after the Pro upgrade.
+- cost: 1 line, path-scoped
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
