@@ -17,6 +17,7 @@ import { InboxApprovalDetails } from './InboxApprovalDetails';
 import { InboxApprovalDocuments } from './InboxApprovalDocuments';
 import { DuesSectionList } from './InboxCollectionGroupCard';
 import { InboxOrderPanel } from './InboxOrderPanel';
+import { WhatsAppBuyerLinker } from './WhatsAppBuyerLinker';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
 
 const InboxEnquiryPanel = dynamic(
@@ -127,6 +128,10 @@ function WhatsAppMessagePanel({ entry }: { entry: InboxEntry }) {
           </div>
         </div>
       </div>
+
+      {resolutionStatus === 'ambiguous' || resolutionStatus === 'unknown' ? (
+        <WhatsAppBuyerLinker entryId={entry.id} resolutionStatus={resolutionStatus} />
+      ) : null}
 
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-cream-500">Messages</p>
