@@ -1,4 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `after()` only works inside a request scope; run the callback inline so tests can assert on it.
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (task: unknown) => {
+    void (typeof task === 'function' ? (task as () => unknown)() : task);
+  },
+}));
+
+const flushBuyerMembershipsNowMock = vi.fn().mockResolvedValue({});
+vi.mock('@/lib/server/buyer-membership-flush', () => ({
+  flushBuyerMembershipsNow: (...args: unknown[]) => flushBuyerMembershipsNowMock(...args),
+}));
 import { NextRequest } from 'next/server';
 
 const getVerifiedClaimsMock = vi.fn();
