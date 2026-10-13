@@ -3,10 +3,15 @@
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import { useMemo } from 'react';
-import { Send } from 'lucide-react';
+import { RotateCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumberValue } from '@/lib/utils';
-import { useSendWhatsAppInboxReply } from '@/hooks/useInboxEntries';
+import {
+  useRetryWhatsAppInboxReply,
+  useSendWhatsAppInboxReply,
+  useWhatsAppThread,
+  type WhatsAppDeliveryStatus,
+} from '@/hooks/useInboxEntries';
 import { Button } from '@/components/ui/button';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Textarea } from '@/components/ui/textarea';
@@ -82,11 +87,24 @@ function serviceWindowLabel(expiresAt: string | null): { label: string; expired:
   return { label: `${hours}h service window`, expired: false };
 }
 
+const DELIVERY_LABELS: Record<WhatsAppDeliveryStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'danger' | 'warning' }> = {
+  queued: { label: 'Sending', tone: 'neutral' },
+  sent: { label: 'Sent', tone: 'info' },
+  delivered: { label: 'Delivered', tone: 'success' },
+  read: { label: 'Read', tone: 'success' },
+  failed: { label: 'Failed to send', tone: 'danger' },
+  opted_out: { label: 'Buyer opted out', tone: 'warning' },
+  blocked_by_recipient: { label: 'Blocked by buyer', tone: 'warning' },
+};
+
 function WhatsAppMessagePanel({ entry }: { entry: InboxEntry }) {
   if (entry.entry_type !== 'whatsapp_buyer_message') return null;
 
   const [body, setBody] = useState('');
   const sendReply = useSendWhatsAppInboxReply();
+  const retryReply = useRetryWhatsAppInboxReply();
+  const thread = useWhatsAppThread(entry.id, true);
+  const replies = (thread.data ?? []).filter((message) => message.direction === 'outbound');
   const messages = messageBundle(entry);
   const resolutionStatus = stringMeta(entry, 'resolution_status');
   const senderPhone = stringMeta(entry, 'sender_phone');
@@ -102,6 +120,15 @@ function WhatsAppMessagePanel({ entry }: { entry: InboxEntry }) {
       toast.success('WhatsApp reply queued');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not send WhatsApp reply');
+    }
+  }
+
+  async function onRetry(threadMessageId: string) {
+    try {
+      await retryReply.mutateAsync({ entryId: entry.id, threadMessageId });
+      toast.success('Retrying WhatsApp reply');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not retry WhatsApp reply');
     }
   }
 
@@ -141,6 +168,41 @@ function WhatsAppMessagePanel({ entry }: { entry: InboxEntry }) {
           )}
         </div>
       </div>
+
+      {replies.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-cream-500">Your replies</p>
+          <div className="space-y-2">
+            {replies.map((reply) => {
+              const state = DELIVERY_LABELS[reply.delivery_status ?? 'queued'];
+              return (
+                <div key={reply.id} className="rounded-[10px] border border-cream-200 bg-white p-3">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-cream-900">{reply.text_body}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <StatusPill label={state.label} tone={state.tone} />
+                    <span className="text-xs text-cream-500">{new Date(reply.at).toLocaleString()}</span>
+                    {reply.can_retry ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={retryReply.isPending}
+                        onClick={() => void onRetry(reply.id)}
+                      >
+                        <RotateCw className="h-3.5 w-3.5" aria-hidden />
+                        Retry
+                      </Button>
+                    ) : null}
+                  </div>
+                  {reply.delivery_status === 'failed' && reply.failure_reason ? (
+                    <p className="mt-1 text-xs text-cream-600">{reply.failure_reason}</p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-3">
         <Textarea
