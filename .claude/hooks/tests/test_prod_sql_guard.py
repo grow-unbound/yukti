@@ -53,7 +53,7 @@ class ClassifySql(unittest.TestCase):
             self.bad(T + stmt + " limit 1;")
 
     def test_side_effects_rejected(self):
-        self.bad(T + "select app.flush_buyer_membership('a','b') limit 1;", "side effects")
+        self.bad(T + "select app.flush_buyer_membership('a','b') limit 1;", "STABLE/IMMUTABLE")
         self.bad(T + "select nextval('s') limit 1;", "side-effect")
         self.bad(T + "select net.http_post(url:='x') limit 1;", "side-effect")
         self.bad(T + "select cron.alter_job(1) limit 1;", "cron.alter_job")
@@ -72,6 +72,49 @@ class ClassifySql(unittest.TestCase):
         self.bad("select * from app.buyers limit 1;", "statement_timeout")
         self.bad("set statement_timeout='60s'; select * from app.buyers limit 1;", "above 20s")
         self.bad("set statement_timeout='1min'; select * from app.buyers limit 1;", "above 20s")
+
+
+class Bypasses(unittest.TestCase):
+    """Cases from the security review of the classifier: each must be rejected."""
+
+    def bad(self, sql):
+        okay, why = g.classify_sql(T + sql)
+        self.assertFalse(okay, f"classifier let this through:\n{sql}")
+
+    def test_quoted_and_spaced_function_calls(self):
+        self.bad('select "app"."flush_buyer_membership"(\'a\',\'b\') limit 1;')
+        self.bad("select app . flush_buyer_membership ('a','b') limit 1;")
+        self.bad("select APP.Flush_Buyer_Membership('a','b') limit 1;")
+        self.bad("select app.\n  flush_buyer_membership('a','b') limit 1;")
+
+    def test_unqualified_and_other_schema_calls(self):
+        self.bad("select flush_buyer_membership('a','b') limit 1;")      # resolves via search_path
+        self.bad("select public.anything() limit 1;")
+        self.bad("select pg_catalog.nextval('s') limit 1;")
+        self.bad("select some_extension_fn(1) limit 1;")
+        self.bad("select extensions.http_get('x') limit 1;")
+
+    def test_string_desync_tricks(self):
+        self.bad("select e'\\'' ; delete from app.buyers limit 1;")
+        self.bad("select 'unterminated ; delete from app.buyers limit 1;")
+        self.bad("select $a$ unterminated ; delete from app.buyers limit 1;")
+        self.bad("select u&'x' limit 1;")
+
+    def test_volatile_app_function_not_in_allowlist(self):
+        self.bad("select app.dispatch_buyer_zoho_pushes(null, 1) limit 1;")
+        self.bad("select app.request_buyer_app_access('a') limit 1;")
+
+    def test_safe_function_that_returns_secrets_is_blocked(self):
+        self.bad("select app.get_integrations_dispatch_secret() limit 1;")
+
+    def test_stable_app_function_is_allowed(self):
+        okay, why = g.classify_sql(T + "select * from app.resolve_prices_batch(array['a'::uuid], 'b'::uuid, 1) limit 5;")
+        self.assertTrue(okay, why)
+
+    def test_allowed_read_is_wrapped_read_only(self):
+        wrapped = g._read_only_input("mcp__x__execute_sql", {"project_id": PROD, "query": T + "select 1 limit 1;"})
+        self.assertTrue(wrapped["query"].startswith("begin transaction read only;"))
+        self.assertTrue(wrapped["query"].rstrip().endswith("rollback;"))
 
 
 class HookFlow(unittest.TestCase):
