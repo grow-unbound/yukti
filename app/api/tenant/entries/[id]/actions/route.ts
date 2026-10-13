@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { getVerifiedClaims } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { canAccessDocumentLocation } from '@/lib/server/seller-location-access';
 import { queueApprovalResolutionMessage } from '@/lib/server/buyer-approval-notify';
+import { flushBuyerMembershipsNow } from '@/lib/server/buyer-membership-flush';
 
 export const dynamic = 'force-dynamic';
 
@@ -200,6 +201,11 @@ export async function POST(
         const missingFields = action === 'request_more_info'
           ? ((resolvedEntry?.metadata?.missing_fields as string[] | undefined) ?? undefined)
           : undefined;
+        if (action === 'approve') {
+          // Approval enables the buyer app: join campaign audiences now, not at the next tick.
+          const tenantId = claims.tenant_id;
+          after(() => flushBuyerMembershipsNow(supabaseAdmin as any, tenantId, [buyerId]));
+        }
         // Non-critical: notify failures must not fail an already-successful
         // entry-action request (same fire-and-forget contract as the intake
         // route's queueAccessRequestReceivedMessages call).
