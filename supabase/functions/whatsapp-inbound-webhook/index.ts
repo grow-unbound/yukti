@@ -6,6 +6,7 @@
 // Spec: DealFlow_WhatsApp-Broadcast-Spec_v4.md §5
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { normalizeInboundMessage, type MetaInboundMessage } from '../_shared/whatsapp-inbound-normalize.ts';
 
 function createAdminClient() {
   const url = Deno.env.get('SUPABASE_URL');
@@ -30,14 +31,6 @@ function normalizeIndianPhone(input: string): string {
   return digits;
 }
 
-interface MetaInboundMessage {
-  id?: string;
-  from?: string;
-  timestamp?: string;
-  type?: string;
-  text?: { body?: string };
-  button?: { text?: string };
-}
 
 interface MetaStatusUpdate {
   id?: string;
@@ -244,8 +237,10 @@ async function handleInboundMessages(
     for (const message of change.value?.messages ?? []) {
       if (!message.from) continue;
 
-      const textBody = message.type === 'button' ? message.button?.text : message.text?.body;
-      if (isOptOutMessage(textBody)) {
+      const inbound = normalizeInboundMessage(message);
+      const textBody = inbound?.text ?? null;
+      // STOP can arrive as typed text or as a template quick-reply button.
+      if ((message.type === 'text' || message.type === 'button') && isOptOutMessage(textBody)) {
         const phone = normalizeIndianPhone(message.from);
         if (!phone) continue;
         console.info('[whatsapp-inbound-webhook] inbound opt-out received', {
@@ -275,8 +270,8 @@ async function handleInboundMessages(
         continue;
       }
 
-      if (message.type !== 'text' && message.type !== 'button') continue;
-      if (!message.id || !textBody) continue;
+      if (!inbound || !message.id) continue;
+      if ((inbound.type === 'text' || inbound.type === 'button') && !textBody) continue;
       if (!phoneNumberId) {
         console.warn('[whatsapp-inbound-webhook] inbound message missing phone_number_id', {
           providerMessageId: message.id,
@@ -294,15 +289,16 @@ async function handleInboundMessages(
           p_sender_phone: message.from,
           p_recipient_phone_number_id: phoneNumberId,
           p_recipient_display_phone: displayPhoneNumber,
-          p_message_type: message.type,
-          p_text_body: textBody,
+          p_message_type: inbound.type,
+          p_text_body: textBody ?? '',
           p_received_at: receivedAt,
           p_raw_payload: {
             id: message.id,
             from: message.from,
-            type: message.type,
+            type: inbound.type,
             timestamp: message.timestamp ?? null,
             metadata: metadata ?? null,
+            ...inbound.extra,
           },
           p_platform_phone_number_id: platformPhoneNumberId,
           p_platform_tenant_id: platformTenantId,
