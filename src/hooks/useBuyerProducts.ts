@@ -19,8 +19,6 @@ import {
   BUYER_REFERENCE_QUERY_GC_TIME,
   BUYER_PRICE_QUERY_STALE_TIME,
   BUYER_PRICE_QUERY_GC_TIME,
-  BUYER_PDP_QUERY_STALE_TIME,
-  BUYER_PDP_QUERY_GC_TIME,
 } from '@/lib/query-navigation';
 
 export type BuyerProductDetailApiResponse = { item: BuyerCatalogItem };
@@ -66,8 +64,8 @@ export function prefetchBuyerProductDetail(
     queryKey: buyerProductDetailQueryKey(tenantProductId, stockSignature),
     queryFn: async () =>
       fetchJson<BuyerProductDetailApiResponse>(buyerProductDetailUrl(tenantProductId), { fresh: true }),
-    staleTime: BUYER_PDP_QUERY_STALE_TIME,
-    gcTime: BUYER_PDP_QUERY_GC_TIME,
+    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
+    gcTime: BUYER_PRICE_QUERY_GC_TIME,
   });
 }
 
@@ -281,8 +279,8 @@ export function useBuyerProductRecommendations(
     queryFn: async () =>
       fetchJson<BuyerProductPageRecos>(buyerProductRecommendationsUrl(tenantProductId)),
     enabled: Boolean(tenantProductId) && (options?.enabled ?? true),
-    staleTime: BUYER_PDP_QUERY_STALE_TIME,
-    gcTime: BUYER_PDP_QUERY_GC_TIME,
+    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
+    gcTime: BUYER_PRICE_QUERY_GC_TIME,
   });
 }
 
@@ -294,8 +292,8 @@ export function useBuyerProductDetail(tenantProductId: string) {
     queryFn: async () =>
       fetchJson<BuyerProductDetailApiResponse>(buyerProductDetailUrl(tenantProductId), { fresh: true }),
     enabled: Boolean(tenantProductId),
-    staleTime: BUYER_PDP_QUERY_STALE_TIME,
-    gcTime: BUYER_PDP_QUERY_GC_TIME,
+    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
+    gcTime: BUYER_PRICE_QUERY_GC_TIME,
   });
 
   const item = productQuery.data?.item ?? null;
@@ -315,8 +313,8 @@ export function useBuyerProductFamilyDetail(productFamilyId: string) {
     queryFn: async () =>
       fetchJson<BuyerProductFamilyDetailApiResponse>(buyerProductFamilyDetailUrl(productFamilyId), { fresh: true }),
     enabled: Boolean(productFamilyId),
-    staleTime: BUYER_PDP_QUERY_STALE_TIME,
-    gcTime: BUYER_PDP_QUERY_GC_TIME,
+    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
+    gcTime: BUYER_PRICE_QUERY_GC_TIME,
   });
 
   return {

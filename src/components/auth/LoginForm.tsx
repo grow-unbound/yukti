@@ -59,12 +59,28 @@ function safeNext(raw: string | null): string | null {
   return null;
 }
 
+/** Tenant slug of a catalog-host `return_to` (https://{slug}.useyukti.in/...), used for branding only —
+ * the server re-validates the same value before using it to scope or acquire a buyer. */
+function slugFromReturnTo(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const label = new URL(raw).hostname.split('.')[0]?.toLowerCase() ?? '';
+    return label && !['app', 'catalog', 'www'].includes(label) ? label : null;
+  } catch {
+    return null;
+  }
+}
+
 export function LoginForm({ initialSurface }: { initialSurface: AuthSurfaceInfo }) {
   const router = useRouter();
   const posthog = usePostHog();
   const searchParams = useSearchParams();
   const authSurface = useAuthSurface(initialSurface);
-  const { branding: tenantBranding } = useTenantAuthBranding(authSurface.tenantSlug);
+  // The page a catalog-host visitor was sent here from (their distributor's storefront). It must ride
+  // along to /api/auth/phone-otp/send and /verify so a new phone is onboarded at THAT distributor and
+  // a verified session is handed off to its tenant host.
+  const returnTo = searchParams.get('return_to');
+  const { branding: tenantBranding } = useTenantAuthBranding(authSurface.tenantSlug ?? slugFromReturnTo(returnTo));
   const resetSuccess = searchParams.get('reset') === 'success';
   const accountVerified = searchParams.get('verified') === '1';
   const prefillEmail = searchParams.get('email') ?? '';
@@ -118,6 +134,7 @@ export function LoginForm({ initialSurface }: { initialSurface: AuthSurfaceInfo 
           phoneNumber,
           surface: authSurface.surface,
           tenantSlug: authSurface.tenantSlug,
+          ...(returnTo ? { return_to: returnTo } : {}),
         }),
       });
 
@@ -137,7 +154,8 @@ export function LoginForm({ initialSurface }: { initialSurface: AuthSurfaceInfo 
         shouldResetLoading = false;
         router.push(
           `/verify?ref_id=${encodeURIComponent(data.ref_id ?? '')}&phone=${encodeURIComponent(phoneNumber)}`
-          + (next ? `&next=${encodeURIComponent(next)}` : ''),
+          + (next ? `&next=${encodeURIComponent(next)}` : '')
+          + (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ''),
         );
         return;
       }

@@ -17,6 +17,7 @@ function pickDoc(payload: any): TransactionDoc | null {
     tax_total: e.tax_total,
     total_amount: e.total_amount,
     items: e.items ?? [],
+    campaignName: e.campaign_name ?? null,
   };
 }
 

@@ -34,10 +34,5 @@ export const BUYER_REFERENCE_QUERY_GC_TIME = 60 * 60 * 1000;
 export const BUYER_PRICE_QUERY_STALE_TIME = 15_000;
 export const BUYER_PRICE_QUERY_GC_TIME = 60_000;
 
-// Product detail page (PDP) tier — product / family detail and "more in this
-// category" recos. Price edits are infrequent and the cart re-resolves every
-// line price on open (useBuyerResolvedProducts stays on BUYER_PRICE_*), so a
-// PDP revisit within this window reuses the cached payload instead of paying
-// two priced origin calls again. Do not use for cart or list surfaces.
-export const BUYER_PDP_QUERY_STALE_TIME = 5 * 60_000;
-export const BUYER_PDP_QUERY_GC_TIME = 10 * 60_000;
+// Product / family detail and their recommendations carry prices, so they use the BUYER_PRICE_* tier
+// above like cart resolution does — a longer tier let the PDP show a price the cart then disagreed with.
