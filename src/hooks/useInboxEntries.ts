@@ -113,8 +113,70 @@ export function useSendWhatsAppInboxReply() {
       }
       return (await res.json()) as { data: { message_id: string; enqueued: boolean } };
     },
-    onSettled: () => {
+    onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: ['inbox-entries'] });
+      queryClient.invalidateQueries({ queryKey: ['inbox-entry-history'] });
+      queryClient.invalidateQueries({ queryKey: ['inbox-whatsapp-thread', vars.entryId] });
+    },
+  });
+}
+
+export type WhatsAppDeliveryStatus =
+  | 'queued'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'failed'
+  | 'opted_out'
+  | 'blocked_by_recipient';
+
+export interface WhatsAppThreadMessage {
+  id: string;
+  direction: 'inbound' | 'outbound';
+  text_body: string;
+  at: string;
+  delivery_status: WhatsAppDeliveryStatus | null;
+  failure_reason: string | null;
+  can_retry: boolean;
+}
+
+/** Statuses still moving toward a final state; the thread polls while any exist. */
+const WHATSAPP_IN_FLIGHT = new Set<WhatsAppDeliveryStatus>(['queued', 'sent']);
+const WHATSAPP_THREAD_POLL_MS = 5000;
+
+export function useWhatsAppThread(entryId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['inbox-whatsapp-thread', entryId],
+    enabled,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/tenant/entries/${entryId}/whatsapp-thread`, { fresh: true });
+      if (!res.ok) throw new Error('Failed to load WhatsApp thread');
+      return ((await res.json()) as { data: WhatsAppThreadMessage[] }).data;
+    },
+    staleTime: NAVIGATION_QUERY_STALE_TIME,
+    gcTime: NAVIGATION_QUERY_GC_TIME,
+    placeholderData: keepPreviousData,
+    refetchInterval: (query) =>
+      query.state.data?.some((m) => m.delivery_status && WHATSAPP_IN_FLIGHT.has(m.delivery_status))
+        ? WHATSAPP_THREAD_POLL_MS
+        : false,
+  });
+}
+
+export function useRetryWhatsAppInboxReply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ entryId, threadMessageId }: { entryId: string; threadMessageId: string }) => {
+      const res = await apiPost(`/api/tenant/entries/${entryId}/whatsapp-reply/retry`, {
+        thread_message_id: threadMessageId,
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error ?? 'Failed to retry WhatsApp reply');
+      }
+    },
+    onSettled: (_data, _error, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['inbox-whatsapp-thread', vars.entryId] });
       queryClient.invalidateQueries({ queryKey: ['inbox-entry-history'] });
     },
   });
