@@ -1,4 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `after()` only works inside a request scope; run the callback inline so tests can assert on it.
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (task: unknown) => {
+    void (typeof task === 'function' ? (task as () => unknown)() : task);
+  },
+}));
+
+const flushBuyerMembershipsNowMock = vi.fn().mockResolvedValue({});
+vi.mock('@/lib/server/buyer-membership-flush', () => ({
+  flushBuyerMembershipsNow: (...args: unknown[]) => flushBuyerMembershipsNowMock(...args),
+}));
 import { NextRequest } from 'next/server';
 
 const getVerifiedClaimsMock = vi.fn();
@@ -239,6 +252,12 @@ describe('PATCH /api/tenant/buyer-app/access', () => {
       'tenant-1',
       ['00000000-0000-4000-8000-000000000001'],
     );
+    // newly enabled buyers join their campaign audiences immediately, not at the next 15-min tick
+    expect(flushBuyerMembershipsNowMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'tenant-1',
+      ['00000000-0000-4000-8000-000000000001'],
+    );
   });
 
   it('does not queue WhatsApp when disabling access', async () => {
@@ -278,5 +297,6 @@ describe('PATCH /api/tenant/buyer-app/access', () => {
       whatsapp_eligible_count: 0,
     });
     expect(queueBuyerAppEnabledMessagesMock).not.toHaveBeenCalled();
+    expect(flushBuyerMembershipsNowMock).not.toHaveBeenCalled();
   });
 });

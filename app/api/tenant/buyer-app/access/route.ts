@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { getVerifiedClaims, decodeJWTPayload } from '@/lib/auth';
@@ -11,6 +11,7 @@ import { getSellerLocationScope } from '@/lib/server/seller-location-access';
 import type { AccessPageResponse } from '@/hooks/useBuyerAppAccess';
 import { queueBuyerAppEnabledMessages } from '@/lib/server/buyer-app-enable-notify';
 import { syncBuyerEntrySafe } from '@/lib/server/inbox-entries';
+import { flushBuyerMembershipsNow } from '@/lib/server/buyer-membership-flush';
 
 const AccessQuerySchema = z.object({
   q: z.string().trim().max(120).default(''),
@@ -226,6 +227,12 @@ export async function PATCH(request: NextRequest) {
       for (const row of updated as { id: string }[]) {
         syncBuyerEntrySafe(db, row.id);
       }
+    }
+
+    if (enabled && newlyEnabledIds.length > 0) {
+      // Join their campaign audiences now rather than at the next 15-min membership tick.
+      const tenantId = claims.tenant_id;
+      after(() => flushBuyerMembershipsNow(db, tenantId, newlyEnabledIds));
     }
 
     let whatsappSentCount = 0;
