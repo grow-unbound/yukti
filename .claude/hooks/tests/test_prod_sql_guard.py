@@ -100,9 +100,33 @@ class Bypasses(unittest.TestCase):
         self.bad("select $a$ unterminated ; delete from app.buyers limit 1;")
         self.bad("select u&'x' limit 1;")
 
+    def test_quoted_identifier_desync(self):
+        self.bad("select \"a'b\" from app.buyers limit 1; delete from app.buyers;")
+        self.bad("select \"a;b\" from app.buyers limit 1;")
+        self.bad('select "x""y" from app.buyers limit 1;')
+        self.bad('select "unterminated from app.buyers limit 1;')
+        self.bad('select "a b" from app.buyers limit 1;')
+
+    def test_transaction_control_cannot_escape_wrapper(self):
+        for stmt in ["commit", "end", "rollback", "abort", "start transaction read write",
+                     "set transaction read write", "set session characteristics as transaction read write",
+                     "release savepoint x", "savepoint x"]:
+            self.bad(f"select 1 limit 1; {stmt}; delete from app.buyers;")
+
+    def test_quoted_identifiers_that_are_plain_still_work(self):
+        okay, why = g.classify_sql(T + 'select "id" from "app"."buyers" limit 1;')
+        self.assertTrue(okay, why)
+
     def test_volatile_app_function_not_in_allowlist(self):
         self.bad("select app.dispatch_buyer_zoho_pushes(null, 1) limit 1;")
         self.bad("select app.request_buyer_app_access('a') limit 1;")
+
+    def test_secret_returning_functions_not_allowlisted(self):
+        import json as _json
+        safe = _json.load(open(os.path.join(os.path.dirname(__file__), "..", "safe_functions.json")))
+        for fn in ("get_integrations_dispatch_secret", "get_ops_slack_webhook_url", "get_ops_healthcheck_url"):
+            self.assertNotIn(fn, safe["app"])
+        self.bad("select app.get_ops_slack_webhook_url() limit 1;")
 
     def test_safe_function_that_returns_secrets_is_blocked(self):
         self.bad("select app.get_integrations_dispatch_secret() limit 1;")

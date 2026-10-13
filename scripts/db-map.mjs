@@ -193,11 +193,12 @@ for (const d of domainNames) {
 
 // allowlist for .claude/hooks/prod_sql_guard.py: schema -> function names whose EVERY overload is
 // STABLE/IMMUTABLE (Postgres forbids those from writing). Anything else is treated as side-effecting.
+const SECRETISH_FN = /secret|token|password|credential|api_?key|webhook_url|healthcheck_url|slack|vault|encrypt|decrypt/i;
 const safeFns = { app: new Set(), catalog: new Set() };
 const unsafeFns = new Set();
 for (const f of functions) if (f.volatility === 'v') unsafeFns.add(`${f.schema}.${f.name}`);
 for (const f of functions) {
-  if (f.volatility !== 'v' && !unsafeFns.has(`${f.schema}.${f.name}`) && safeFns[f.schema]) safeFns[f.schema].add(f.name);
+  if (f.volatility !== 'v' && !unsafeFns.has(`${f.schema}.${f.name}`) && !SECRETISH_FN.test(f.name) && safeFns[f.schema]) safeFns[f.schema].add(f.name);
 }
 const safeJson = `${JSON.stringify(Object.fromEntries(Object.entries(safeFns).map(([k, v]) => [k, [...v].sort()])), null, 1)}\n`;
 const safePath = resolve('.claude/hooks/safe_functions.json');

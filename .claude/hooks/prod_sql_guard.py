@@ -105,7 +105,8 @@ DENY_SCHEMA_CALLS = {"net", "vault", "auth", "cron", "extensions", "supabase_mig
 DENY_WORDS = re.compile(
     r"\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|call|do|perform|"
     r"execute|lock|comment|refresh|reindex|cluster|listen|notify|reset|into|begin|commit|rollback|"
-    r"savepoint|prepare|deallocate|discard|import|security|merge|upsert)\b"
+    r"savepoint|prepare|deallocate|discard|import|security|merge|upsert|abort|start|transaction|"
+    r"session|release|checkpoint|load|declare|fetch|move|close)\b"
 )
 DENY_FUNCS = re.compile(
     r"\b(nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_advisory\w*|pg_notify|"
@@ -114,7 +115,7 @@ DENY_FUNCS = re.compile(
 )
 FOR_LOCK = re.compile(r"\bfor\s+(no\s+key\s+)?(update|share)\b")
 SENSITIVE = re.compile(
-    r"(decrypted_secrets|\bvault\.|\bauth\.(users|identities|sessions|refresh_tokens|mfa_\w+|"
+    r"(decrypted_secrets|webhook_url|healthcheck_url|slack_|dispatch_secret|\bkey\b|_key\b|\btoken|\bvault\.|\bauth\.(users|identities|sessions|refresh_tokens|mfa_\w+|"
     r"one_time_tokens)\b|otp_sessions|password|secret|api_key|credential|access_token|refresh_token|"
     r"encrypted)"
 )
@@ -143,6 +144,26 @@ def _sanitize(sql: str) -> str:
         if two == "/*":
             j = sql.find("*/", i + 2)
             i = n if j == -1 else j + 2
+            continue
+        if c == '"':
+            # quoted identifier: scan to the closing quote ("" is an escaped quote). Emit the bare
+            # lowercase name; anything other than [A-Za-z0-9_$] inside is not parsed -> fail closed.
+            j = i + 1
+            ident = []
+            while j < n:
+                if sql[j] == '"' and sql[j + 1:j + 2] == '"':
+                    return None  # escaped quote inside an identifier: not worth parsing
+                if sql[j] == '"':
+                    break
+                ident.append(sql[j])
+                j += 1
+            if j >= n:
+                return None  # unterminated quoted identifier
+            name = "".join(ident)
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", name):
+                return None
+            out.append(name.lower())
+            i = j + 1
             continue
         if c == "'":
             j = i + 1
@@ -183,10 +204,9 @@ def classify_sql(sql: str):
         return False, "uses E'..' / U&'..' / backslash escapes (not parsed; ask)"
     code = _sanitize(sql)
     if code is None:
-        return False, "unterminated string or dollar-quote"
+        return False, "unterminated string/identifier/dollar-quote or unparseable quoted identifier"
     code = code.lower()
-    # "App"."Fn"(  ->  app.fn(   (quoted identifiers are plain identifiers; strip the quotes)
-    code = re.sub(r'"([^"]*)"', lambda m: m.group(1), code)
+    # quoted identifiers were already reduced to bare lowercase names by _sanitize (or rejected)
     statements = [s.strip() for s in code.split(";") if s.strip()]
     if not statements:
         return False, "empty query"
