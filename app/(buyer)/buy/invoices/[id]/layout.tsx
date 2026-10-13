@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { loadBuyerInvoiceTitle } from '@/lib/server/buyer-page-titles';
 import { storefrontPageTitle } from '@/lib/server/storefront-metadata';
 
 type LayoutProps = {
@@ -7,10 +6,10 @@ type LayoutProps = {
   params: Promise<{ id: string }>;
 };
 
-export async function generateMetadata({ params }: LayoutProps): Promise<Metadata> {
-  const { id } = await params;
-  const label = await loadBuyerInvoiceTitle(id);
-  return storefrontPageTitle(label ?? 'Invoice');
+// Static on purpose: the title lookup was a DB read on every open. The client component already
+// receives the label in its data payload and sets document.title once that loads.
+export function generateMetadata(): Metadata {
+  return storefrontPageTitle('Invoice');
 }
 
 export default function InvoiceDetailLayout({ children }: LayoutProps) {

@@ -1,16 +1,5 @@
 import { cache } from 'react';
-import { headers } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase';
-import { getBuyerServerClaims } from '@/lib/server/buyer-server-claims';
-
-async function resolveTenantId(): Promise<string | null> {
-  const headerStore = await headers();
-  const fromMiddleware = headerStore.get('x-verified-tenant-id');
-  if (fromMiddleware) return fromMiddleware;
-
-  const claims = await getBuyerServerClaims();
-  return claims.tenant_id ?? null;
-}
 
 async function loadCategoryTitleForTenant(tenantId: string, categoryId: string): Promise<string | null> {
   if (!supabaseAdmin || !categoryId.trim()) return null;
@@ -90,24 +79,6 @@ async function loadProductTitleForTenant(tenantId: string, tenantProductId: stri
   return sku?.trim() || null;
 }
 
-export const loadBuyerCategoryTitle = cache(async (categoryId: string): Promise<string | null> => {
-  const tenantId = await resolveTenantId();
-  if (!tenantId) return null;
-  return loadCategoryTitleForTenant(tenantId, categoryId);
-});
-
-export const loadBuyerBrandTitle = cache(async (brandId: string): Promise<string | null> => {
-  const tenantId = await resolveTenantId();
-  if (!tenantId) return null;
-  return loadBrandTitleForTenant(tenantId, brandId);
-});
-
-export const loadBuyerProductTitle = cache(async (tenantProductId: string): Promise<string | null> => {
-  const tenantId = await resolveTenantId();
-  if (!tenantId) return null;
-  return loadProductTitleForTenant(tenantId, tenantProductId);
-});
-
 /**
  * Tenant-scoped variants for the guest ISR tree (app/(buyer-guest)/buy/g/...)
  * — take `tenantId` from the `[tenantSlug]`-resolved route param instead of
@@ -117,56 +88,3 @@ export const loadBuyerCategoryTitleForTenant = cache(loadCategoryTitleForTenant)
 export const loadBuyerBrandTitleForTenant = cache(loadBrandTitleForTenant);
 export const loadBuyerProductTitleForTenant = cache(loadProductTitleForTenant);
 
-export const loadBuyerOrderTitle = cache(async (orderId: string): Promise<string | null> => {
-  if (!supabaseAdmin || !orderId.trim()) return null;
-  const tenantId = await resolveTenantId();
-  if (!tenantId) return null;
-
-  const { data } = await supabaseAdmin
-    .schema('app')
-    .from('orders')
-    .select('order_number')
-    .eq('tenant_id', tenantId)
-    .eq('id', orderId)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  const num = data?.order_number as string | null;
-  return num?.trim() || null;
-});
-
-export const loadBuyerEstimateTitle = cache(async (estimateId: string): Promise<string | null> => {
-  if (!supabaseAdmin || !estimateId.trim()) return null;
-  const tenantId = await resolveTenantId();
-  if (!tenantId) return null;
-
-  const { data } = await supabaseAdmin
-    .schema('app')
-    .from('estimates')
-    .select('estimate_number')
-    .eq('tenant_id', tenantId)
-    .eq('id', estimateId)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  const num = data?.estimate_number as string | null;
-  return num?.trim() || null;
-});
-
-export const loadBuyerInvoiceTitle = cache(async (invoiceId: string): Promise<string | null> => {
-  if (!supabaseAdmin || !invoiceId.trim()) return null;
-  const tenantId = await resolveTenantId();
-  if (!tenantId) return null;
-
-  const { data } = await supabaseAdmin
-    .schema('app')
-    .from('invoices')
-    .select('invoice_number')
-    .eq('tenant_id', tenantId)
-    .eq('id', invoiceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  const num = data?.invoice_number as string | null;
-  return num?.trim() || null;
-});
