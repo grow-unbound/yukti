@@ -5,6 +5,17 @@
 PROD_REF="cckmurgapnkytbzxqesp"
 DEV_REF="hcpzbnmumbykdqveyjhr"
 input=$(cat)
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 0) Supabase MCP calls: classify read vs write. First prod read per session asks, later read-only
+#    calls are allowed (marker written by the PostToolUse half of prod_sql_guard.py); prod writes
+#    always ask; dev reads are allowed. Empty output = not an MCP call / no opinion -> checks below.
+#    If python3 is unavailable this yields nothing and the blanket prod-ref check below still asks.
+decision=$(printf '%s' "$input" | python3 -I "$HOOK_DIR/prod_sql_guard.py" pre 2>/dev/null) || decision=""
+if [ -n "$decision" ]; then
+  printf '%s\n' "$decision"
+  exit 0
+fi
 
 ask() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$1"
