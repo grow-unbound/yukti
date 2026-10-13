@@ -15,6 +15,24 @@ Item format:
 
 ## Pending
 
+### 2026-10-13 fix/restore-buyer-login-otp-return-to — fire-and-forget after the response is not safe on Vercel
+- [ ] target: .claude/rules/data-fetching.md   change: add
+- text: `Server work that must happen after a route responds (WhatsApp dispatch, activity logs) goes in after() from next/server; a bare `void promise()` is frozen when the response is sent and silently drops the work.`
+- why: app/api/buyer/estimates/route.ts and orders/route.ts used `void sendImmediateTransactionNotifications()`; 8 enquiry_received rows sat `queued` (attempt 0) for ~20h on 2026-10-12 until the daily sweep.
+- cost: 1 line, path-scoped
+
+### 2026-10-13 fix/restore-buyer-login-otp-return-to — never ship a release with the auth route tests red
+- [ ] target: CLAUDE.md (Workflow)   change: add
+- text: `develop→main release PRs: src/tests/auth/buyer-phone-otp-routes.test.ts and login-page tests must be green; a red auth suite on develop already encoded the lost behaviour (app-disabled buyers get OTP; return_to + handoff_url survive the login/verify clients).`
+- why: Oct 4-5 auth-surface rewrite shipped 2026-10-11 with 9 failing OTP-route tests; PostHog login_failed `buyer_app_access_disabled` went 0 → 45/day and /pending views fell 275/day → 22/day.
+- cost: 1 line, always-loaded
+
+### 2026-10-13 fix/restore-buyer-login-otp-return-to — incident fact for MEMORY.md
+- [ ] target: MEMORY.md (project)   change: add
+- text: `Oct 11 release regressed buyer login (send route required buyer_app_enabled; LoginForm/Verify dropped return_to + handoff_url). Fixed on fix/restore-buyer-login-otp-return-to; PostHog HogQL via POSTHOG_PERSONAL_API_KEY in .env.local (login_failed failure_type, $pageview /pending). WhatsApp dispatch is app-code synchronous (trigger dropped 2026-07-13); daily sweep is only a backstop.`
+- why: avoids re-deriving the PostHog access path and the dispatch architecture next incident.
+- cost: 1 line, MEMORY.md
+
 ### 2026-09-28 feat/inbox-ui-polish — stage by explicit path in a shared checkout
 - [ ] target: CLAUDE.md (Workflow)   change: add
 - text: `Other sessions may leave uncommitted edits in the same checkout: stage by explicit path (never git add src/ or -A), and check git show --stat after committing.`
