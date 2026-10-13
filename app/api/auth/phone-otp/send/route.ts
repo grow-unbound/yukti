@@ -55,8 +55,12 @@ function toLoginOtpBuyerCandidate(candidate: BuyerLoginCandidate): LoginOtpCandi
   };
 }
 
+// Per-buyer `buyer_app_enabled` is deliberately NOT part of OTP eligibility: an app-disabled buyer
+// must still receive an OTP so verify/select-context can mint a restricted `buyer_pending` session
+// and land them on /pending (request access / submit documents). Only a tenant-level disable
+// blocks the OTP.
 function isEligibleBuyer(candidate: BuyerLoginCandidate): boolean {
-  return Boolean(candidate.buyer_app_enabled && candidate.tenant_app_enabled);
+  return Boolean(candidate.tenant_app_enabled);
 }
 
 function tenantSlugMatches(candidate: BuyerLoginCandidate, tenantSlug: string | null): boolean {
@@ -70,7 +74,7 @@ function tenantSlugMatches(candidate: BuyerLoginCandidate, tenantSlug: string | 
  *
  * Seller sessions are only discoverable on app.{suffix}. catalog.{suffix} and
  * tenant.{suffix} resolve buyer candidates only, even if a seller enters their
- * phone number there.
+ * phone number there. App-disabled buyers still get an OTP (see isEligibleBuyer).
  */
 export async function POST(request: NextRequest) {
   try {

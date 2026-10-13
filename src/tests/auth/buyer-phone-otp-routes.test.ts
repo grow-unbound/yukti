@@ -176,11 +176,12 @@ describe('buyer phone otp routes', () => {
   });
 
   it('sends OTP only for registered enabled buyer principals', async () => {
-    findAllLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
+    findBuyerLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
 
     const { POST } = await import('../../../app/api/auth/phone-otp/send/route');
     const response = await POST(new Request('http://localhost/api/auth/phone-otp/send', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({ phoneNumber: '9876543210' }),
     }) as any);
     const body = await response.json();
@@ -382,6 +383,7 @@ describe('buyer phone otp routes', () => {
     const { POST } = await import('../../../app/api/auth/phone-otp/send/route');
     const response = await POST(new Request('http://localhost/api/auth/phone-otp/send', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({ phoneNumber: '9876543210' }),
     }) as any);
     const body = await response.json();
@@ -396,8 +398,7 @@ describe('buyer phone otp routes', () => {
     expect(body.message).toContain('Yukti buyer-app');
   });
 
-  it('returns buyer disabled metadata when buyer app is disabled for the buyer', async () => {
-    findAllLoginCandidatesMock.mockResolvedValue([]);
+  it('still sends an OTP when only the buyer app is disabled, so verify lands them on /pending', async () => {
     findBuyerLoginCandidatesMock.mockResolvedValue([
       {
         ...eligibleBuyerCandidate,
@@ -411,18 +412,15 @@ describe('buyer phone otp routes', () => {
     const { POST } = await import('../../../app/api/auth/phone-otp/send/route');
     const response = await POST(new Request('http://localhost/api/auth/phone-otp/send', {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber: '9876543210' }),
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
+      body: JSON.stringify({ phoneNumber: '9876543210', return_to: 'https://acme.useyukti.in/buy/home' }),
     }) as any);
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.registered).toBe(false);
-    expect(body.outcome).toBe('buyer_disabled');
-    expect(body.ref_id).toBeNull();
-    expect(body.seller_name).toBe('Acme Corp');
-    expect(body.seller_whatsapp_number).toBe('9876500000');
-    expect(body.message).toContain('Acme Corp');
-    expect(body.message).toContain('buyer-app');
+    expect(body.registered).toBe(true);
+    expect(body.outcome).toBe('otp_sent');
+    expect(sendLoginOtpWhatsappMock).toHaveBeenCalledTimes(1);
   });
 
   it('verifies OTP and mints a session for a single buyer context', async () => {
@@ -525,7 +523,7 @@ describe('buyer phone otp routes', () => {
   });
 
   it('hands off to the tenant\'s own origin instead of minting a session when verified off-tenant-host (e.g. catalog.useyukti.in)', async () => {
-    findAllLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
+    findBuyerLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
     mintBuyerHandoffLinkMock.mockResolvedValue({ hashedToken: 'token-abc', buyerId: 'buyer-1' });
 
     const sendRoute = await import('../../../app/api/auth/phone-otp/send/route');
@@ -533,6 +531,7 @@ describe('buyer phone otp routes', () => {
     // host, where the request isn't scoped to any one tenant.
     const sendResponse = await sendRoute.POST(new Request('http://localhost/api/auth/phone-otp/send', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({ phoneNumber: '9876543210' }),
     }) as any);
     const sendBody = await sendResponse.json();
@@ -542,6 +541,7 @@ describe('buyer phone otp routes', () => {
     const pending = await storeModule.buyerOtpStore.get(sendBody.ref_id);
     const verifyRequest = Object.assign(new Request('http://localhost/api/auth/phone-otp/verify', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({ ref_id: sendBody.ref_id, otp: pending && pending.kind === 'pending' ? pending.otp : '000000' }),
     }), {
       nextUrl: new URL('http://localhost/api/auth/phone-otp/verify'),
@@ -560,12 +560,13 @@ describe('buyer phone otp routes', () => {
   });
 
   it('carries a validated return_to through to the handoff URL as `next`', async () => {
-    findAllLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
+    findBuyerLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
     mintBuyerHandoffLinkMock.mockResolvedValue({ hashedToken: 'token-abc', buyerId: 'buyer-1' });
 
     const sendRoute = await import('../../../app/api/auth/phone-otp/send/route');
     const sendResponse = await sendRoute.POST(new Request('http://localhost/api/auth/phone-otp/send', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({ phoneNumber: '9876543210' }),
     }) as any);
     const sendBody = await sendResponse.json();
@@ -575,6 +576,7 @@ describe('buyer phone otp routes', () => {
     const pending = await storeModule.buyerOtpStore.get(sendBody.ref_id);
     const verifyRequest = Object.assign(new Request('http://localhost/api/auth/phone-otp/verify', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({
         ref_id: sendBody.ref_id,
         otp: pending && pending.kind === 'pending' ? pending.otp : '000000',
@@ -684,12 +686,13 @@ describe('buyer phone otp routes', () => {
   });
 
   it('drops a return_to that does not resolve to the destination tenant host', async () => {
-    findAllLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
+    findBuyerLoginCandidatesMock.mockResolvedValue([eligibleBuyerCandidate]);
     mintBuyerHandoffLinkMock.mockResolvedValue({ hashedToken: 'token-abc', buyerId: 'buyer-1' });
 
     const sendRoute = await import('../../../app/api/auth/phone-otp/send/route');
     const sendResponse = await sendRoute.POST(new Request('http://localhost/api/auth/phone-otp/send', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({ phoneNumber: '9876543210' }),
     }) as any);
     const sendBody = await sendResponse.json();
@@ -699,6 +702,7 @@ describe('buyer phone otp routes', () => {
     const pending = await storeModule.buyerOtpStore.get(sendBody.ref_id);
     const verifyRequest = Object.assign(new Request('http://localhost/api/auth/phone-otp/verify', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json', host: 'catalog.useyukti.in' },
       body: JSON.stringify({
         ref_id: sendBody.ref_id,
         otp: pending && pending.kind === 'pending' ? pending.otp : '000000',
