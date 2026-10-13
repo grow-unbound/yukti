@@ -29,6 +29,10 @@ BEGIN
     RAISE NOTICE 'base_selling_price fallback already removed; nothing to patch';
   ELSE
     EXECUTE replace(v_def, v_needle, 'pli.price');
+
+    IF position(v_needle IN pg_get_functiondef('app.refresh_campaign_products_by_id(uuid)'::regprocedure)) > 0 THEN
+      RAISE EXCEPTION 'refresh_campaign_products_by_id still contains the base_selling_price fallback after patching';
+    END IF;
   END IF;
 END;
 $$;

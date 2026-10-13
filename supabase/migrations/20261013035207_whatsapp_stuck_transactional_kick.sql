@@ -18,6 +18,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO pg_catalog, app
 AS $$
+DECLARE
+  v_secret text;
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -32,11 +34,18 @@ BEGIN
     RETURN false;
   END IF;
 
+  -- Vault-backed helper (GUC fallback inside); an empty secret would be rejected by the worker
+  -- while this cron still "succeeds", so say so loudly.
+  v_secret := COALESCE(app.get_integrations_dispatch_secret(), '');
+  IF v_secret = '' THEN
+    RAISE WARNING 'whatsapp_kick_stuck_transactional: dispatch secret is empty; sweep worker will reject the call';
+  END IF;
+
   PERFORM net.http_post(
     url := app.get_functions_base_url() || '/whatsapp-queue-sweep-worker',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'x-push-secret', COALESCE(current_setting('app.integrations_dispatch_secret', true), '')
+      'x-push-secret', v_secret
     ),
     body := jsonb_build_object('trigger', 'stuck_transactional_kick')
   );

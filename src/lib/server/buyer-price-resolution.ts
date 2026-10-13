@@ -35,18 +35,36 @@ export async function resolveAuthoritativePrices(
 
   const campaignPriceMap = new Map<string, number>();
   if (campaignId) {
-    const { data: campaignItemRows, error: campaignItemsError } = await db
+    // The id is client-supplied (share links): only honour a published, in-window campaign of THIS
+    // tenant, never an arbitrary UUID (another tenant's, a draft, an expired one).
+    const nowIso = new Date().toISOString();
+    const { data: campaignRow, error: campaignError } = await db
       .schema('app')
-      .from('campaign_items')
-      .select('tenant_product_id, price_override')
-      .eq('campaign_id', campaignId)
-      .in('tenant_product_id', items.map((item) => item.tenant_product_id))
-      .is('deleted_at', null);
-    if (campaignItemsError) throw new Error(campaignItemsError.message);
-    for (const row of (campaignItemRows ?? []) as Array<{ tenant_product_id: string; price_override: number | string | null }>) {
-      const override = campaignOverridePrice(row.price_override);
-      if (override !== null) {
-        campaignPriceMap.set(row.tenant_product_id, override);
+      .from('campaigns')
+      .select('id')
+      .eq('id', campaignId)
+      .eq('tenant_id', params.tenantId)
+      .eq('status', 'published')
+      .is('deleted_at', null)
+      .lte('valid_from', nowIso)
+      .gte('valid_to', nowIso)
+      .maybeSingle();
+    if (campaignError) throw new Error(campaignError.message);
+
+    if (campaignRow) {
+      const { data: campaignItemRows, error: campaignItemsError } = await db
+        .schema('app')
+        .from('campaign_items')
+        .select('tenant_product_id, price_override')
+        .eq('campaign_id', campaignId)
+        .in('tenant_product_id', items.map((item) => item.tenant_product_id))
+        .is('deleted_at', null);
+      if (campaignItemsError) throw new Error(campaignItemsError.message);
+      for (const row of (campaignItemRows ?? []) as Array<{ tenant_product_id: string; price_override: number | string | null }>) {
+        const override = campaignOverridePrice(row.price_override);
+        if (override !== null) {
+          campaignPriceMap.set(row.tenant_product_id, override);
+        }
       }
     }
   }

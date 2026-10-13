@@ -43,7 +43,20 @@ export async function inferCampaignIdForBuyerCart(
     tenantProductIds: string[];
   },
 ): Promise<string | null> {
-  if (params.clientCampaignId) return params.clientCampaignId;
+  if (params.clientCampaignId) {
+    // Client-supplied (share links): only trust a published campaign of this tenant, otherwise
+    // fall through to inference so a forged id cannot be attributed to the document.
+    const { data: owned } = await db
+      .schema('app')
+      .from('campaigns')
+      .select('id')
+      .eq('id', params.clientCampaignId)
+      .eq('tenant_id', params.tenantId)
+      .eq('status', 'published')
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (owned) return params.clientCampaignId;
+  }
 
   const productIds = [...new Set(params.tenantProductIds.filter(Boolean))];
   if (productIds.length === 0) return null;
