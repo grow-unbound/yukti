@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
+import { resolveVisibleCampaignMap } from '@/lib/server/buyer-product-data';
 
 export type BuyerPricedLine = {
   tenant_product_id: string;
@@ -18,12 +19,13 @@ type PriceRow = { tenant_product_id: string; unit_price: number | string };
  * Items are grouped by qty since price can be qty-tiered, mirroring the grouping
  * already used in buyer-product-data.ts's catalog price resolution.
  *
- * `campaignId` (already resolved + visibility-checked by inferCampaignIdForBuyerCart
- * before this is called) is checked first, matching the documented resolution order
- * ("1. Catalog price_override") — `resolve_prices_batch` only implements steps 2-5
- * (buyer/cohort/all_buyers price lists, then base_selling_price), so without this,
- * every campaign-priced cart item silently re-priced at full price at checkout even
- * though the buyer was quoted the campaign price everywhere else in the UI.
+ * Campaign prices are applied per product, exactly like browse/PDP/cart do
+ * (`resolveVisibleCampaignMap` = the buyer's visible campaigns, best one per product), so a
+ * cart that mixes products from different campaigns is charged what each card quoted.
+ * `campaignId` is an explicit campaign the client is ordering from (e.g. a share link) and is
+ * checked first. `resolve_prices_batch` only implements steps 2-5 (buyer/cohort/all_buyers
+ * price lists, then base_selling_price), so without the campaign layer every campaign-priced
+ * item would silently re-price at list price at checkout.
  */
 export async function resolveAuthoritativePrices(
   db: SupabaseClient,
@@ -33,21 +35,45 @@ export async function resolveAuthoritativePrices(
 
   const campaignPriceMap = new Map<string, number>();
   if (campaignId) {
-    const { data: campaignItemRows, error: campaignItemsError } = await db
+    // The id is client-supplied (share links): only honour a published, in-window campaign of THIS
+    // tenant, never an arbitrary UUID (another tenant's, a draft, an expired one).
+    const nowIso = new Date().toISOString();
+    const { data: campaignRow, error: campaignError } = await db
       .schema('app')
-      .from('campaign_items')
-      .select('tenant_product_id, price_override')
-      .eq('campaign_id', campaignId)
-      .in('tenant_product_id', items.map((item) => item.tenant_product_id))
-      .is('deleted_at', null);
-    if (campaignItemsError) throw new Error(campaignItemsError.message);
-    for (const row of (campaignItemRows ?? []) as Array<{ tenant_product_id: string; price_override: number | string | null }>) {
-      const override = campaignOverridePrice(row.price_override);
-      if (override !== null) {
-        campaignPriceMap.set(row.tenant_product_id, override);
+      .from('campaigns')
+      .select('id')
+      .eq('id', campaignId)
+      .eq('tenant_id', params.tenantId)
+      .eq('status', 'published')
+      .is('deleted_at', null)
+      .lte('valid_from', nowIso)
+      .gte('valid_to', nowIso)
+      .maybeSingle();
+    if (campaignError) throw new Error(campaignError.message);
+
+    if (campaignRow) {
+      const { data: campaignItemRows, error: campaignItemsError } = await db
+        .schema('app')
+        .from('campaign_items')
+        .select('tenant_product_id, price_override')
+        .eq('campaign_id', campaignId)
+        .in('tenant_product_id', items.map((item) => item.tenant_product_id))
+        .is('deleted_at', null);
+      if (campaignItemsError) throw new Error(campaignItemsError.message);
+      for (const row of (campaignItemRows ?? []) as Array<{ tenant_product_id: string; price_override: number | string | null }>) {
+        const override = campaignOverridePrice(row.price_override);
+        if (override !== null) {
+          campaignPriceMap.set(row.tenant_product_id, override);
+        }
       }
     }
   }
+
+  const visibleCampaignMap = await resolveVisibleCampaignMap(db, {
+    tenantId: params.tenantId,
+    buyerId,
+    productIds: [...new Set(items.map((item) => item.tenant_product_id))],
+  });
 
   const grouped = new Map<number, string[]>();
   for (const item of items) {
@@ -77,7 +103,9 @@ export async function resolveAuthoritativePrices(
 
   const priced: BuyerPricedLine[] = [];
   for (const item of items) {
-    const resolved = campaignPriceMap.get(item.tenant_product_id) ?? priceMap.get(item.tenant_product_id);
+    const resolved = campaignPriceMap.get(item.tenant_product_id)
+      ?? campaignOverridePrice(visibleCampaignMap.get(item.tenant_product_id)?.campaign_price)
+      ?? priceMap.get(item.tenant_product_id);
     if (resolved === undefined || !Number.isFinite(resolved) || resolved <= 0) {
       return {
         ok: false,

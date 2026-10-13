@@ -1,10 +1,21 @@
 import type { LoginOtpCandidate } from '@/lib/server/buyer-otp-store';
-import { isReservedStorefrontLabel } from '@/lib/storefront-host';
+import {
+  CANONICAL_STOREFRONT_SUFFIX,
+  LEGACY_STOREFRONT_SUFFIX,
+  LOCAL_STOREFRONT_SUFFIX,
+  isReservedStorefrontLabel,
+} from '@/lib/storefront-host';
+
+const STOREFRONT_SUFFIXES = [CANONICAL_STOREFRONT_SUFFIX, LEGACY_STOREFRONT_SUFFIX, LOCAL_STOREFRONT_SUFFIX];
 
 export function tenantSlugFromReturnTo(returnTo: string | null | undefined): string | null {
   if (!returnTo?.trim()) return null;
   try {
-    const slug = new URL(returnTo.trim()).hostname.split('.')[0]?.toLowerCase();
+    const hostname = new URL(returnTo.trim()).hostname.toLowerCase();
+    // Only a host under one of our storefront suffixes can name a tenant: `https://evil.example.com`
+    // must not resolve to a tenant called "evil".
+    if (!STOREFRONT_SUFFIXES.some((suffix) => hostname.endsWith(`.${suffix}`))) return null;
+    const slug = hostname.split('.')[0];
     if (!slug || isReservedStorefrontLabel(slug)) return null;
     return slug;
   } catch {

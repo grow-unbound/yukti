@@ -15,6 +15,24 @@ Item format:
 
 ## Pending
 
+### 2026-10-13 fix/restore-buyer-login-otp-return-to — fire-and-forget after the response is not safe on Vercel
+- [ ] target: .claude/rules/data-fetching.md   change: add
+- text: `Server work that must happen after a route responds (WhatsApp dispatch, activity logs) goes in after() from next/server; a bare `void promise()` is frozen when the response is sent and silently drops the work.`
+- why: app/api/buyer/estimates/route.ts and orders/route.ts used `void sendImmediateTransactionNotifications()`; 8 enquiry_received rows sat `queued` (attempt 0) for ~20h on 2026-10-12 until the daily sweep.
+- cost: 1 line, path-scoped
+
+### 2026-10-13 fix/restore-buyer-login-otp-return-to — never ship a release with the auth route tests red
+- [ ] target: CLAUDE.md (Workflow)   change: add
+- text: `develop→main release PRs: src/tests/auth/buyer-phone-otp-routes.test.ts and login-page tests must be green; a red auth suite on develop already encoded the lost behaviour (app-disabled buyers get OTP; return_to + handoff_url survive the login/verify clients).`
+- why: Oct 4-5 auth-surface rewrite shipped 2026-10-11 with 9 failing OTP-route tests; PostHog login_failed `buyer_app_access_disabled` went 0 → 45/day and /pending views fell 275/day → 22/day.
+- cost: 1 line, always-loaded
+
+### 2026-10-13 fix/restore-buyer-login-otp-return-to — incident fact for MEMORY.md
+- [ ] target: MEMORY.md (project)   change: add
+- text: `Oct 11 release regressed buyer login (send route required buyer_app_enabled; LoginForm/Verify dropped return_to + handoff_url). Fixed on fix/restore-buyer-login-otp-return-to; PostHog HogQL via POSTHOG_PERSONAL_API_KEY in .env.local (login_failed failure_type, $pageview /pending). WhatsApp dispatch is app-code synchronous (trigger dropped 2026-07-13); daily sweep is only a backstop.`
+- why: avoids re-deriving the PostHog access path and the dispatch architecture next incident.
+- cost: 1 line, MEMORY.md
+
 ### 2026-09-28 feat/inbox-ui-polish — stage by explicit path in a shared checkout
 - [ ] target: CLAUDE.md (Workflow)   change: add
 - text: `Other sessions may leave uncommitted edits in the same checkout: stage by explicit path (never git add src/ or -A), and check git show --stat after committing.`
@@ -59,6 +77,18 @@ Item format:
 - text: `To exercise a new function without a persistent push: one execute_sql call to yukti-dev = BEGIN; CREATE OR REPLACE FUNCTION ...; DO $$ ... RAISE EXCEPTION 'RESULT %', jsonb_result::text; END $$; — the result comes back in the error text and the whole call rolls back. Dev only: DO blocks are writes under the prod read rules.`
 - why: gave real plpgsql execution (ambiguity, casts, kill switch, failure/backoff paths) for 3 RPCs in 5 calls with zero residue (verified: no leftover functions/rows); static contract tests alone had missed that the review needed it.
 - cost: 2 lines, path-scoped
+
+### 2026-10-13 docs/vercel-cost-review-2026-10 — PDP tier + fresh:true make HTTP max-age bumps a no-op
+- [ ] target: .claude/rules/data-fetching.md (Client-side query caching)   change: add
+- text: `Product/family detail and PDP recos use BUYER_PDP_QUERY_* (5 min stale), not BUYER_PRICE_* (15 s); cart/list/resolve stay on BUYER_PRICE_*. Detail fetches use fresh:true (no-store), so raising Cache-Control max-age on priced buyer routes saves nothing — the client stale tier is the lever. Load below-fold rails (recos) via useInViewOnce, never on pointerdown prefetch.`
+- why: Oct 9 analysis estimated 10-20% from an HTTP max-age bump; src/hooks/useBuyerProducts.ts prefetch uses fresh:true so it would have been a no-op. PDP triple (page + detail + recos) was ~50% of function Active CPU (Vercel Observability, 24h).
+- cost: 1-2 lines, path-scoped
+
+### 2026-10-13 docs/vercel-cost-review-2026-10 — no DB reads in generateMetadata for authenticated buyer pages
+- [ ] target: .claude/rules/data-fetching.md (Caching)   change: add
+- text: `Authenticated buyer pages: generateMetadata returns a static title; the client sets document.title from the payload it already fetches. A per-open DB lookup for a tab title is billed Fluid Active CPU on every navigation (guest ISR *ForTenant loaders are exempt: cached).`
+- why: #187/#191 removed title lookups from PDP, orders, estimates, invoices, category, brand pages (app/(buyer)/buy/**/layout.tsx|page.tsx); Active CPU is the metered Vercel cost after the Pro upgrade.
+- cost: 1 line, path-scoped
 
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes

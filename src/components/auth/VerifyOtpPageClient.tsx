@@ -26,15 +26,21 @@ function VerifyOtpForm({ initialSurface }: { initialSurface: AuthSurfaceInfo }) 
   const ref_id = searchParams.get('ref_id') ?? '';
   const phone = searchParams.get('phone') ?? '';
   const next = searchParams.get('next') ?? '';
+  const returnTo = searchParams.get('return_to') ?? '';
+  const loginQuery = [
+    returnTo ? `return_to=${encodeURIComponent(returnTo)}` : '',
+    next ? `next=${encodeURIComponent(next)}` : '',
+  ].filter(Boolean).join('&');
+  const loginHref = loginQuery ? `/login?${loginQuery}` : '/login';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!ref_id) {
-      router.replace('/login');
+      router.replace(loginHref);
     }
-  }, [ref_id, router]);
+  }, [ref_id, router, loginHref]);
 
   async function handleSubmit(otp: string) {
     setError('');
@@ -45,20 +51,38 @@ function VerifyOtpForm({ initialSurface }: { initialSurface: AuthSurfaceInfo }) 
       const res = await fetch('/api/auth/phone-otp/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ref_id, otp }),
+        body: JSON.stringify({ ref_id, otp, return_to: returnTo || undefined }),
       });
 
       const data: {
         success?: boolean;
         redirect?: string;
+        handoff_url?: string;
         contexts?: LoginOtpContext[];
         ref_id?: string;
         session?: SessionPayload;
+        return_to?: string;
         error?: string;
       } = await res.json();
 
       if (!res.ok || !data.success) {
         setError(data.error ?? 'Verification failed. Please try again.');
+        return;
+      }
+
+      // Cross-origin handoff: OTP verified on a host other than the buyer's own tenant host (e.g.
+      // catalog.useyukti.in). The tenant host redeems the link and owns the buyer session; a session
+      // here is only present for legacy responses.
+      if (data.handoff_url) {
+        if (data.session?.access_token && data.session?.refresh_token) {
+          await supabaseBrowser.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          });
+        }
+        shouldResetLoading = false;
+        markLoggedInOnDevice();
+        window.location.assign(data.handoff_url);
         return;
       }
 
@@ -69,7 +93,9 @@ function VerifyOtpForm({ initialSurface }: { initialSurface: AuthSurfaceInfo }) 
           // sessionStorage may be unavailable in some environments
         }
         shouldResetLoading = false;
-        router.push(`/login/select-context?ref_id=${encodeURIComponent(data.ref_id)}`);
+        const params = new URLSearchParams({ ref_id: data.ref_id });
+        if (data.return_to || returnTo) params.set('return_to', data.return_to ?? returnTo);
+        router.push(`/login/select-context?${params.toString()}`);
         return;
       }
 
@@ -126,7 +152,7 @@ function VerifyOtpForm({ initialSurface }: { initialSurface: AuthSurfaceInfo }) 
 
       <div className="mt-6 flex items-center justify-between border-t border-cream-200 pt-4">
         <Link
-          href="/login"
+          href={loginHref}
           className="text-caption text-ember-400 hover:text-ember-500 font-medium transition-colors"
         >
           ← {AUTH_LOGIN_COPY.login.changeNumber}
@@ -142,7 +168,7 @@ function VerifyOtpForm({ initialSurface }: { initialSurface: AuthSurfaceInfo }) 
           ) : null}
           <button
             type="button"
-            onClick={() => router.push('/login')}
+            onClick={() => router.push(loginHref)}
             className="text-caption text-cream-600 hover:text-cream-800 transition-colors"
           >
             {AUTH_LOGIN_COPY.login.resendOtp}

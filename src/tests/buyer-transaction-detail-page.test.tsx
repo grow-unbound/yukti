@@ -21,6 +21,8 @@ vi.mock('@/contexts/BuyerCartContext', () => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => useRouterMock(),
+  usePathname: () => '/buy/orders/ord-1',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/components/buyer/layout/BuyerDetailShell', () => ({
@@ -49,6 +51,7 @@ describe('buyer transaction detail page GST presentation', () => {
   it('shows included-in-prices GST and keeps total equal to subtotal when the tenant policy is inclusive', async () => {
     useBuyerMeMock.mockReturnValue({
       data: {
+        tenant: { name: 'Acme Traders' },
         business_policy: { gst_inclusive: true, gst_rate: 18 },
       },
     });
@@ -120,9 +123,60 @@ describe('buyer transaction detail page GST presentation', () => {
     expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
   });
 
+  it('sets the tab title to the document number once the payload resolves', async () => {
+    document.title = 'Order';
+    useBuyerMeMock.mockReturnValue({
+      data: { tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: false, gst_rate: 18 } },
+    });
+    apiFetchMock.mockResolvedValue({
+      json: async () => ({
+        order: {
+          order_number: 'SO-2002',
+          status: 'confirmed',
+          placed_at: '2026-07-20T00:00:00.000Z',
+          subtotal: 100,
+          tax_total: 18,
+          total_amount: 118,
+          items: [],
+        },
+      }),
+    });
+
+    const { TransactionDetailPage } = await import('@/components/buyer/documents/TransactionDetailPage');
+    render(
+      <TransactionDetailPage
+        id="ord-2"
+        title="Order"
+        endpoint="/api/buyer/orders/ord-2"
+        docType="order"
+        pickDoc={(payload) => {
+          const order = payload.order;
+          return order
+            ? {
+                docNumber: order.order_number,
+                status: order.status,
+                primaryDate: order.placed_at,
+                secondaryDate: null,
+                notes: null,
+                subtotal: order.subtotal,
+                tax_total: order.tax_total,
+                total_amount: order.total_amount,
+                placeOfSupply: null,
+                items: [],
+              }
+            : null;
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(document.title).toBe('SO-2002'));
+  });
+
   it('computes GST extra from subtotal when the tenant policy is exclusive', async () => {
     useBuyerMeMock.mockReturnValue({
       data: {
+        tenant: { name: 'Acme Traders' },
         business_policy: { gst_inclusive: false, gst_rate: 18 },
       },
     });

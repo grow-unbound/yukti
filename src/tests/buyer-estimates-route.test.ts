@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// `after()` only works inside a request scope; run the callback inline so tests can assert on it.
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (task: unknown) => {
+    void (typeof task === 'function' ? (task as () => unknown)() : task);
+  },
+}));
+
 // Mocks must be declared before any imports that trigger module resolution
 const requireBuyerAccessProfileMock = vi.fn();
 const sendImmediateTransactionNotificationsMock = vi.fn();
@@ -34,6 +42,7 @@ vi.mock('@/lib/server/buyer-location-selection', () => ({
 
 vi.mock('@/lib/server/buyer-product-data', () => ({
   resolveBuyerInventoryWarehouseId: vi.fn().mockResolvedValue('wh-1'),
+  resolveVisibleCampaignMap: vi.fn().mockResolvedValue(new Map()),
 }));
 
 vi.mock('@/lib/server/buyer-cart-stock', () => ({

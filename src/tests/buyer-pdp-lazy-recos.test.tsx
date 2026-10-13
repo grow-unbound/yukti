@@ -20,7 +20,7 @@ import {
   useBuyerProductRecommendations,
 } from '@/hooks/useBuyerProducts';
 import { useInViewOnce } from '@/hooks/useInViewOnce';
-import { BUYER_PDP_QUERY_STALE_TIME } from '@/lib/query-navigation';
+import { BUYER_PRICE_QUERY_STALE_TIME } from '@/lib/query-navigation';
 
 function makeClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -70,7 +70,7 @@ describe('PDP lazy recommendations', () => {
     const prefetchSpy = vi.spyOn(client, 'prefetchQuery');
     prefetchBuyerProductDetail(client, 'tp-1', 'no-delivery');
     expect(prefetchSpy).toHaveBeenCalledTimes(1);
-    expect(prefetchSpy.mock.calls[0]?.[0]).toMatchObject({ staleTime: BUYER_PDP_QUERY_STALE_TIME });
+    expect(prefetchSpy.mock.calls[0]?.[0]).toMatchObject({ staleTime: BUYER_PRICE_QUERY_STALE_TIME });
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
     expect(String(apiFetchMock.mock.calls[0]?.[0])).toContain('/api/buyer/products/tp-1');
   });
