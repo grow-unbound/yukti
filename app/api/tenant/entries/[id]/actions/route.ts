@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getVerifiedClaims } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { canAccessDocumentLocation } from '@/lib/server/seller-location-access';
+import { captureWhatsAppInboxEvent, secondsSince } from '@/lib/server/whatsapp-inbox-analytics';
 import { queueApprovalResolutionMessage } from '@/lib/server/buyer-approval-notify';
 import { flushBuyerMembershipsNow } from '@/lib/server/buyer-membership-flush';
 
@@ -93,7 +94,7 @@ export async function POST(
     const { data: entry, error: entryError } = await (supabaseAdmin as any)
       .schema('app')
       .from('entries')
-      .select('id, tenant_id, location_id, entry_type')
+      .select('id, tenant_id, location_id, entry_type, status, metadata')
       .eq('id', id)
       .is('deleted_at', null)
       .maybeSingle();
@@ -166,6 +167,17 @@ export async function POST(
       }
       console.error('[POST /api/tenant/entries/[id]/actions] apply_entry_action failed', error);
       return NextResponse.json({ error: 'Failed to update entry' }, { status: 500 });
+    }
+
+    // Time from the buyer's message to the seller first opening it (new -> opened only,
+    // so re-opens and reminders do not distort the metric).
+    if (action === 'open' && entry.entry_type === 'whatsapp_buyer_message' && entry.status === 'new') {
+      captureWhatsAppInboxEvent('whatsapp_entry_first_opened', claims.tenant_id, claims.sub, {
+        entry_id: id,
+        seconds_since_inbound: secondsSince(
+          typeof entry.metadata?.last_inbound_at === 'string' ? entry.metadata.last_inbound_at : null,
+        ),
+      });
     }
 
     // approve returns { applied, replay, entry, ... }; the other actions return the entry row.

@@ -8,6 +8,7 @@ const rpcMock = vi.fn();
 const canAccessDocumentLocationMock = vi.fn();
 const enqueueWhatsAppMessageMock = vi.fn();
 const triggerWhatsAppDispatchMock = vi.fn();
+const captureEventMock = vi.fn();
 
 vi.mock('@/lib/auth', () => ({
   getVerifiedClaims: (...args: unknown[]) => getVerifiedClaimsMock(...args),
@@ -34,6 +35,13 @@ vi.mock('@/lib/server/whatsapp-enqueue', () => ({
   enqueueWhatsAppMessage: (...args: unknown[]) => enqueueWhatsAppMessageMock(...args),
   triggerWhatsAppDispatch: (...args: unknown[]) => triggerWhatsAppDispatchMock(...args),
 }));
+
+vi.mock('@/lib/server/whatsapp-inbox-analytics', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/server/whatsapp-inbox-analytics')>(
+    '@/lib/server/whatsapp-inbox-analytics',
+  );
+  return { ...actual, captureWhatsAppInboxEvent: (...args: unknown[]) => captureEventMock(...args) };
+});
 
 import { POST } from '../../app/api/tenant/entries/[id]/whatsapp-reply/route';
 
@@ -103,6 +111,8 @@ describe('POST /api/tenant/entries/[id]/whatsapp-reply', () => {
         buyer_id: 'buyer-1',
         sender_phone: '919876543210',
         service_window_expires_at: '2099-01-01T00:00:00.000Z',
+        last_inbound_message_at: new Date(Date.now() - 90_000).toISOString(),
+        resolution_status: 'matched',
       }))
       .mockReturnValueOnce(tableResult({ id: 'buyer-1', whatsapp_opt_out_at: null }));
 
@@ -128,5 +138,35 @@ describe('POST /api/tenant/entries/[id]/whatsapp-reply', () => {
       p_whatsapp_message_id: 'wa-msg-1',
     });
     expect(triggerWhatsAppDispatchMock).toHaveBeenCalledWith(['wa-msg-1']);
+
+    expect(captureEventMock).toHaveBeenCalledTimes(1);
+    const [event, tenantId, actorId, props] = captureEventMock.mock.calls[0];
+    expect(event).toBe('whatsapp_reply_submitted');
+    expect(tenantId).toBe('tenant-1');
+    expect(actorId).toBe('seller-1');
+    expect(props).toMatchObject({
+      entry_id: 'entry-1',
+      thread_id: 'thread-1',
+      resolution_status: 'matched',
+      generation_mode: 'manual',
+      reply_length: 'We will check and reply shortly.'.length,
+    });
+    expect(props.seconds_since_inbound).toBeGreaterThanOrEqual(89);
+    expect(JSON.stringify(props)).not.toContain('We will check');
+  });
+
+  it('does not emit a submitted event when the window has expired', async () => {
+    fromMock
+      .mockReturnValueOnce(tableResult(entry))
+      .mockReturnValueOnce(tableResult({
+        id: 'thread-1',
+        tenant_id: 'tenant-1',
+        buyer_id: 'buyer-1',
+        sender_phone: '919876543210',
+        service_window_expires_at: '2026-01-01T00:00:00.000Z',
+      }));
+    const res = await POST(req({ body: 'late' }), params);
+    expect(res.status).toBe(409);
+    expect(captureEventMock).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,11 @@
 // Spec: DealFlow_WhatsApp-Broadcast-Spec_v4.md §5
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+<<<<<<< HEAD
 import { normalizeInboundMessage, type MetaInboundMessage } from '../_shared/whatsapp-inbound-normalize.ts';
+=======
+import { captureInboxEvent } from '../_shared/whatsapp-inbox-analytics.ts';
+>>>>>>> 0c5224eb (feat(whatsapp): reply audit table and inbox analytics events (G7, G8))
 
 function createAdminClient() {
   const url = Deno.env.get('SUPABASE_URL');
@@ -313,7 +317,19 @@ async function handleInboundMessages(
           error: error.message,
         });
       } else {
-        const result = (data ?? {}) as { processed?: boolean; skipped?: string; duplicate?: boolean };
+        const result = (data ?? {}) as {
+          processed?: boolean;
+          skipped?: string;
+          duplicate?: boolean;
+          tenant_id?: string;
+          resolution_status?: string;
+        };
+        if (result.processed === true && result.duplicate !== true && !result.skipped) {
+          await captureInboxEvent('whatsapp_inbound_captured', result.tenant_id ?? tenantId, {
+            resolution_status: result.resolution_status ?? null,
+            message_type: message.type ?? null,
+          });
+        }
         console.info('[whatsapp-inbound-webhook] inbound processing complete', {
           providerMessageId: message.id,
           phoneNumberId,
