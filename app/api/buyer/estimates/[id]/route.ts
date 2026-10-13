@@ -34,6 +34,8 @@ export interface BuyerEstimateDetail {
   subtotal: number;
   tax_total: number;
   document_url: string | null;
+  /** Campaign whose prices were applied at submission (lines are at the campaign price). */
+  campaign_name: string | null;
   items: BuyerEstimateItem[];
 }
 
@@ -62,7 +64,7 @@ export async function GET(
     const { data: estimate, error } = await (db as any)
       .schema('app')
       .from('estimates')
-      .select('id, estimate_number, status, estimate_type, notes, created_at, valid_until, place_of_supply, total_amount, subtotal, tax_amount, estimate_url')
+      .select('id, estimate_number, status, estimate_type, notes, created_at, valid_until, place_of_supply, total_amount, subtotal, tax_amount, estimate_url, campaign_id')
       .eq('id', id)
       .eq('tenant_id', tenant_id)
       .eq('buyer_id', buyer_id)
@@ -71,6 +73,20 @@ export async function GET(
 
     if (error || !estimate) {
       return NextResponse.json({ error: 'Estimate not found' }, { status: 404 });
+    }
+
+    let campaignName: string | null = null;
+    const campaignId = (estimate as { campaign_id?: string | null }).campaign_id ?? null;
+    if (campaignId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: campaign } = await (db as any)
+        .schema('app')
+        .from('campaigns')
+        .select('name')
+        .eq('id', campaignId)
+        .eq('tenant_id', tenant_id)
+        .maybeSingle();
+      campaignName = (campaign as { name?: string | null } | null)?.name ?? null;
     }
 
     const rawItems = await loadBuyerDocumentLineItems(db as any, tenant_id, 'estimates', id);
@@ -91,6 +107,7 @@ export async function GET(
       subtotal,
       tax_total,
       document_url: (estimate as { estimate_url?: string | null }).estimate_url ?? null,
+      campaign_name: campaignName,
       items: rawItems,
     };
 

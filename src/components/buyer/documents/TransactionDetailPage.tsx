@@ -65,6 +65,8 @@ export interface TransactionDoc {
   outstandingBalance?: number | null;
   placeOfSupply: string | null;
   items: TransactionLineItem[];
+  /** Campaign whose price was applied to the lines (estimates) — same price the buyer saw on cards and cart. */
+  campaignName?: string | null;
 }
 
 export type DocType = 'order' | 'estimate' | 'invoice';
@@ -260,6 +262,11 @@ export function TransactionDetailDocumentBody({
         <p className="mt-1 text-[var(--b-text-sub)] text-[var(--cream-600)]">
           {formatTransactionDocSubtitle(doc, docType)}
         </p>
+        {doc.campaignName ? (
+          <p className="mt-2 text-[var(--b-text-sub)] font-medium text-[var(--success-700)]">
+            Campaign price applied: {doc.campaignName}
+          </p>
+        ) : null}
         {doc.notes ? (
           <p className="mt-2 text-sm leading-5 text-[var(--cream-800)]">{doc.notes}</p>
         ) : null}

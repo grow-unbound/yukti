@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin, supabase } from '@/lib/supabase';
 import type { BuyerAppMode } from '@/types/buyer';
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<BuyerOrde
       tenantId: tenant_id,
       buyerId: buyer_id,
       items: stockValidation.items,
-      campaignId: resolvedCampaignId,
+      campaignId: campaign_id ?? null,
     });
     if (!priceResolution.ok) {
       return NextResponse.json(
@@ -341,15 +341,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<BuyerOrde
     });
 
     const whatsappDispatched = !deferDocumentNumber && Boolean(typed.order_number);
-    if (!deferDocumentNumber && typed.order_number) {
-      void sendImmediateTransactionNotifications({
+    const notifyDocumentNumber = typed.order_number;
+    if (!deferDocumentNumber && notifyDocumentNumber) {
+      // Must run inside after(): a bare `void` promise is frozen/killed once the response is sent, which
+      // left the WhatsApp row enqueued but never dispatched (stuck `queued` until the daily sweep).
+      after(() => sendImmediateTransactionNotifications({
         kind: 'order',
         tenantId: tenant_id,
         buyerId: buyer_id,
         locationId: routedLocationId,
         initiatingBuyerUserId: context.sub,
         documentId: typed.id,
-        documentNumber: typed.order_number,
+        documentNumber: notifyDocumentNumber,
         totalAmount: total_amount,
         itemCount: acceptedItems.length,
         db,
@@ -359,7 +362,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<BuyerOrde
           order_id: typed.id,
           error: err instanceof Error ? err.message : String(err),
         });
-      });
+      }));
     }
 
     void recordBuyerAppActivitySafe(db as any, {
