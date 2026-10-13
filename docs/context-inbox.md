@@ -15,6 +15,18 @@ Item format:
 
 ## Pending
 
+### 2026-10-13 chore/prod-read-guard-and-db-map — CLAUDE.md should point at the DB map and match what the hook enforces
+- [ ] target: CLAUDE.md ("Where to look" table)   change: add
+- text: `| Tables, columns, RPCs, cron, query recipes/gotchas | docs/db/INDEX.md → one domain file; docs/db/recipes.md (read before debugging prod) |`
+- why: ~14 schema-discovery queries and 6 wrong-column-name failures in the Oct 13 incident; the map is generated (scripts/db-map.mjs) and `.claude/rules/db-schema.md` only auto-loads on migration/SQL paths.
+- cost: 1 line, always-loaded
+
+### 2026-10-13 chore/prod-read-guard-and-db-map — prod-reads sentence should describe the hook, not rely on the model
+- [ ] target: CLAUDE.md (Prod safety, first bullet)   change: edit
+- text: replace "Prod **reads**: ask once per session (name the project); that one yes covers every read in these classes without per-query asks" with "Prod **reads**: `.claude/hooks/guard-prod.sh` (prod_sql_guard.py) asks on the first read-class call of a session and auto-allows later ones (wrapped in a read-only transaction); every write, side-effect function, secret/PII touch, unbounded or timeout-less query asks every time."
+- why: the old hook asked on every call naming the prod ref and was stateless, so "ask once" in CLAUDE.md was not enforceable; user approved ~every query.
+- cost: net 0 lines, always-loaded
+
 ### 2026-10-13 fix/restore-buyer-login-otp-return-to — fire-and-forget after the response is not safe on Vercel
 - [ ] target: .claude/rules/data-fetching.md   change: add
 - text: `Server work that must happen after a route responds (WhatsApp dispatch, activity logs) goes in after() from next/server; a bare `void promise()` is frozen when the response is sent and silently drops the work.`
