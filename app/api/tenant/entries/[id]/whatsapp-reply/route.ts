@@ -73,7 +73,7 @@ export async function POST(
 
     if (!thread.service_window_expires_at || new Date(thread.service_window_expires_at).getTime() <= Date.now()) {
       return NextResponse.json(
-        { error: 'The 24-hour WhatsApp service window has expired. Approved template replies are not available in P0.' },
+        { error: 'The 24-hour WhatsApp reply window has closed. You can reply again once the buyer messages you.' },
         { status: 409 },
       );
     }
