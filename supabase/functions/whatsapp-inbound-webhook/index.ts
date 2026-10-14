@@ -6,11 +6,8 @@
 // Spec: DealFlow_WhatsApp-Broadcast-Spec_v4.md §5
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-<<<<<<< HEAD
 import { normalizeInboundMessage, type MetaInboundMessage } from '../_shared/whatsapp-inbound-normalize.ts';
-=======
 import { captureInboxEvent } from '../_shared/whatsapp-inbox-analytics.ts';
->>>>>>> 0c5224eb (feat(whatsapp): reply audit table and inbox analytics events (G7, G8))
 
 function createAdminClient() {
   const url = Deno.env.get('SUPABASE_URL');
