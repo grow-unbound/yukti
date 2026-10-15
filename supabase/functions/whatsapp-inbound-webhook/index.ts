@@ -7,6 +7,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { normalizeInboundMessage, type MetaInboundMessage } from '../_shared/whatsapp-inbound-normalize.ts';
+import { captureInboxEvent } from '../_shared/whatsapp-inbox-analytics.ts';
 
 function createAdminClient() {
   const url = Deno.env.get('SUPABASE_URL');
@@ -313,7 +314,19 @@ async function handleInboundMessages(
           error: error.message,
         });
       } else {
-        const result = (data ?? {}) as { processed?: boolean; skipped?: string; duplicate?: boolean };
+        const result = (data ?? {}) as {
+          processed?: boolean;
+          skipped?: string;
+          duplicate?: boolean;
+          tenant_id?: string;
+          resolution_status?: string;
+        };
+        if (result.processed === true && result.duplicate !== true && !result.skipped) {
+          await captureInboxEvent('whatsapp_inbound_captured', result.tenant_id ?? tenantId, {
+            resolution_status: result.resolution_status ?? null,
+            message_type: message.type ?? null,
+          });
+        }
         console.info('[whatsapp-inbound-webhook] inbound processing complete', {
           providerMessageId: message.id,
           phoneNumberId,

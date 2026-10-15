@@ -8,6 +8,7 @@ import { formatWhatsappDestination } from '@/lib/phone';
 import { supabaseAdmin } from '@/lib/supabase';
 import { canAccessDocumentLocation } from '@/lib/server/seller-location-access';
 import { enqueueWhatsAppMessage, triggerWhatsAppDispatch } from '@/lib/server/whatsapp-enqueue';
+import { captureWhatsAppInboxEvent, secondsSince } from '@/lib/server/whatsapp-inbox-analytics';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +62,7 @@ export async function POST(
     const { data: thread, error: threadError } = await (supabaseAdmin as any)
       .schema('app')
       .from('whatsapp_threads')
-      .select('id, tenant_id, buyer_id, sender_phone, service_window_expires_at')
+      .select('id, tenant_id, buyer_id, sender_phone, service_window_expires_at, last_inbound_message_at, resolution_status')
       .eq('id', entry.source_entity_id)
       .eq('tenant_id', claims.tenant_id)
       .is('deleted_at', null)
@@ -129,6 +130,15 @@ export async function POST(
       console.error('[POST /api/tenant/entries/[id]/whatsapp-reply] audit failed', auditError);
       return NextResponse.json({ error: 'Failed to record WhatsApp reply' }, { status: 500 });
     }
+
+    captureWhatsAppInboxEvent('whatsapp_reply_submitted', claims.tenant_id, claims.sub, {
+      entry_id: id,
+      thread_id: thread.id,
+      resolution_status: thread.resolution_status ?? null,
+      generation_mode: 'manual',
+      reply_length: parsed.data.body.length,
+      seconds_since_inbound: secondsSince(thread.last_inbound_message_at),
+    });
 
     const dispatch = await triggerWhatsAppDispatch([result.messageId]);
 
