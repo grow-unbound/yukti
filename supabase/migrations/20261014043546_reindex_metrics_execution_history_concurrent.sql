@@ -1,0 +1,11 @@
+-- Reclaim btree space on app.metrics_execution_history. The table is pruned by
+-- metrics-prune-operational-history, so its live row count is small (prod: 379 rows) while its
+-- indexes retain the pages from earlier growth (prod: ~7 MB of index on a 1.6 MB heap).
+-- Counts toward the Free-plan 0.5 GB pg_database_size quota.
+--
+-- REINDEX TABLE CONCURRENTLY: no write-blocking lock. Single statement, no BEGIN/COMMIT, because
+-- REINDEX CONCURRENTLY cannot run inside a transaction block or a pipelined batch under
+-- `supabase db push` (same pattern as 20260713144707_*_fk_concurrent.sql).
+-- If it is interrupted it leaves invalid *_ccnew indexes; drop them and re-run.
+-- Idempotent; data and index definitions are unchanged.
+REINDEX TABLE CONCURRENTLY app.metrics_execution_history;
