@@ -15,6 +15,36 @@ Item format:
 
 ## Pending
 
+### 2026-10-17 perf/buyer-profile-slim — specs/ and docs/incidents/ are gitignored; say so
+- [ ] target: CLAUDE.md ("Where to look" table)   change: edit
+- text: append to the `specs/INDEX.md` row: "(`specs/` and `docs/incidents/` are gitignored in this public repo: new specs/logs stay local, don't `git add` them)"
+- why: two failed `git add` attempts and a wasted branch/PR step this session (.gitignore:82 `specs/`, `docs/*`).
+- cost: ~0 lines, always-loaded
+
+### 2026-10-17 perf/buyer-profile-slim — pre-existing red suite makes scripts/verify.sh always fail
+- [ ] target: MEMORY.md   change: add
+- text: `src/tests/sales-orders-landing-page.test.ts` fails on clean develop ("The URL must be of scheme file", @sentry/server-utils webpack import); verify.sh reports FAILED whenever it is in the affected set. Confirm with `git stash` + single-file run, then proceed and say so in the PR.
+- why: reproduced on origin/develop @ dee02e63; fixing the import/mock would restore a clean gate.
+- cost: 1 line, always-loaded (or fix the test and drop this)
+
+### 2026-10-17 perf/buyer-profile-slim — React cache() does not dedupe inside Route Handlers
+- [ ] target: .claude/rules/data-fetching.md   change: edit
+- text: in the `cache()` bullet add: "`cache()` only memoizes within a React render (Server Components). In `/api/*` Route Handlers it does not dedupe; share reads by passing the value down, or coalesce in-flight reads (see `src/lib/server/buyer-membership.ts`)."
+- why: PR1 needed the same buyers/cohort read shared by two helpers inside a route handler; the rule currently suggests `cache()` generically. (Not verified empirically on this Next version; confirm before accepting.)
+- cost: 1 line, path-scoped
+
+### 2026-10-13 chore/prod-read-guard-and-db-map — CLAUDE.md should point at the DB map and match what the hook enforces
+- [ ] target: CLAUDE.md ("Where to look" table)   change: add
+- text: `| Tables, columns, RPCs, cron, query recipes/gotchas | docs/db/INDEX.md → one domain file; docs/db/recipes.md (read before debugging prod) |`
+- why: ~14 schema-discovery queries and 6 wrong-column-name failures in the Oct 13 incident; the map is generated (scripts/db-map.mjs) and `.claude/rules/db-schema.md` only auto-loads on migration/SQL paths.
+- cost: 1 line, always-loaded
+
+### 2026-10-13 chore/prod-read-guard-and-db-map — prod-reads sentence should describe the hook, not rely on the model
+- [ ] target: CLAUDE.md (Prod safety, first bullet)   change: edit
+- text: replace "Prod **reads**: ask once per session (name the project); that one yes covers every read in these classes without per-query asks" with "Prod **reads**: `.claude/hooks/guard-prod.sh` (prod_sql_guard.py) asks on the first read-class call of a session and auto-allows later ones (wrapped in a read-only transaction); every write, side-effect function, secret/PII touch, unbounded or timeout-less query asks every time."
+- why: the old hook asked on every call naming the prod ref and was stateless, so "ask once" in CLAUDE.md was not enforceable; user approved ~every query.
+- cost: net 0 lines, always-loaded
+
 ### 2026-10-13 fix/restore-buyer-login-otp-return-to — fire-and-forget after the response is not safe on Vercel
 - [ ] target: .claude/rules/data-fetching.md   change: add
 - text: `Server work that must happen after a route responds (WhatsApp dispatch, activity logs) goes in after() from next/server; a bare `void promise()` is frozen when the response is sent and silently drops the work.`
@@ -89,6 +119,59 @@ Item format:
 - text: `Authenticated buyer pages: generateMetadata returns a static title; the client sets document.title from the payload it already fetches. A per-open DB lookup for a tab title is billed Fluid Active CPU on every navigation (guest ISR *ForTenant loaders are exempt: cached).`
 - why: #187/#191 removed title lookups from PDP, orders, estimates, invoices, category, brand pages (app/(buyer)/buy/**/layout.tsx|page.tsx); Active CPU is the metered Vercel cost after the Pro upgrade.
 - cost: 1 line, path-scoped
+
+### 2026-10-17 claude/cart-details-gst-inclusive — Zoho API returns ex-GST amounts for inclusive docs
+- [ ] target: docs/architecture.md (pricing/integrations)   change: add
+- text: `Zoho sync-back stores API sub_total/tax_total/item_total as-is. For is_inclusive_tax docs Zoho returns them ex-GST (item_total 2669.50 for 3 x 1050 @18%) while the Zoho UI shows 3150, so stored line_total/subtotal/tax_amount of synced estimates are ex-GST. Estimate display surfaces derive lines = qty x unit_price, subtotal = sum, tax 0 when tenant gst_inclusive; invoices still read stored values.`
+- why: prod EST-019439 (tenant d601c35c): buyer row line_total 3150 soft-deleted 07:30:16, replaced 07:29:58 by sync row 2669.50; live Zoho GET confirmed sub_total 2669.50 / tax_total 480.50 / total 3150.00. Took ~8 turns to establish.
+- cost: 2 lines, always-loaded (or path-scoped to architecture.md)
+
+### 2026-10-17 claude/cart-details-gst-inclusive — worktree verify prerequisites
+- [ ] target: CLAUDE.md (Workflow, after the verify.sh line)   change: add
+- text: `In a worktree, vitest needs Supabase env: run \`set -a; . <main-checkout>/.env.local; set +a\` first (never dummy values, never print it). If tsc fails only inside \`.next/types\`, move that dir to archived/ and rerun.`
+- why: scripts/verify.sh failed on stale .next/types/validator.ts and on "Supabase URL and API key are required" in a fresh worktree; cost ~6 turns incl. a rejected dummy-env run.
+- cost: 1-2 lines, always-loaded (could instead live in scripts/verify.sh)
+
+### 2026-10-17 claude/cart-details-gst-inclusive — incident fact for MEMORY.md
+- [ ] target: MEMORY.md   change: add
+- text: `Zoho raw payload inspection: integration_entity_map.source_payload is empty (size limits). With explicit user OK, call Zoho from inside Postgres via pg_net (token refresh at accounts.zoho.in, then GET /books/v3/estimates/{external_ref}) so the vault token never leaves the DB; read back only numeric fields. Vault secret keys: client_id, client_secret, org_id, refresh_token, region.`
+- why: user authorized a one-off vault read on 2026-10-17; this kept the token out of the transcript and command text.
+- cost: 2 lines, MEMORY.md
+
+### 2026-10-17 docs/pulse-live-aggregation-rules — KPIs computed at request time from raw tables (reverses snapshot-only rule)
+- [ ] target: .claude/rules/metrics.md   change: edit (replace the "KPI cards, page headers, dashboard totals ... must read from `app.*_snapshot`, `app.kpi_*_daily`, or a documented aggregate-backed RPC/read model" bullet; keep its "never from a page slice / optimistic cache" sentence)
+- text: `KPIs (cards, headers, dashboard totals) are computed at request time from raw tables with indexed, tenant-scoped, period-bounded queries: one RPC per dashboard band, tenant from JWT, location scope in WHERE, flag-gated (UI and RPC). Use the canonical helpers (metric_day_ist, estimate_status_counts_as_demand, invoice_status_gmv_included, order_status_*, invoice_*), never inline status arrays or date math. Each RPC sets statement_timeout ~3 s; the UI shows a per-band error state. Caching is client-side only (React Query stale time, Cache-Control: private); no server-side result tables. Every new or changed RPC ships EXPLAIN (ANALYZE, BUFFERS) evidence on a high-volume fixture. Do not add precomputed aggregate/summary tables or dirty-queue/tick jobs. Only exception: landing tables for external-source data (e.g. PostHog daily imports). Never derive totals from a page slice or optimistic cache.`
+- why: Owner decision 2026-10-17 (Pulse evolution assessment, sections 5 and 8): move away from pre-aggregated compute (metrics tick, summary tables), which caused repeated prod stalls and accuracy drift (see MEMORY.md: Oct 1 and Oct 7 incidents). Prod measurement shows raw transaction tables are ms-level when queried through the day index; the one slow path was a vacuum/visibility-map issue, not a missing precompute. Without this edit the current bullet makes the next session refuse the design.
+- cost: net ~0-3 lines, path-scoped (metrics files)
+
+### 2026-10-17 docs/pulse-live-aggregation-rules — Pulse spec 2.8 read-path contract and test line
+- [ ] target: specs/Yukti_Pulse-Dashboard_Product-Spec_v1.md (section 2.8 "Read-path contract", first two bullets and the new-snapshot-index bullet; test list line "No request-time aggregation over raw transactional/event tables for dashboard headline metrics.")   change: edit
+- text: `Read-path contract: headline metrics, opportunity counts and ranked signals are computed at request time by band-scoped RPCs over indexed raw tables (tenant-scoped, period-bounded, one pass per band), using canonical helpers; no precomputed summary tables, snapshots, dirty queues or tick jobs for these; client-side stale time is the only cache. Raw-table reads stay bounded: SQL-side tenant/location filtering, explicit period cap, explicit limit on lists, no N+1, EXPLAIN (ANALYZE, BUFFERS) evidence on a representative high-volume fixture. Budgets unchanged (aggregate read p95 < 100 ms warm, widget endpoint p95 < 300 ms). Test line becomes: "Every headline-metric RPC has query-plan evidence (index use, tenant/location predicates, period bound) and a statement_timeout with per-band error state."` Index bullet: apply the same index-the-actual-filter/sort-columns guidance to raw-table access paths.
+- why: same decision as the rules entry above; 2.8 and its test line currently forbid exactly what the owner decided to do. Spec is gitignored (specs/ not tracked), so this is a local edit in the main checkout.
+- cost: spec edit only, 0 always-loaded lines
+
+### 2026-10-17 docs/pulse-live-aggregation-rules — Pulse spec 2.5 period discipline: lift "no trend arrows", default MTD
+- [ ] target: specs/Yukti_Pulse-Dashboard_Product-Spec_v1.md (section 2.5 lines "Phase 1 uses current quarter to date ..." and "Phase 1 does not show trend arrows.")   change: edit
+- text: `Default Pulse period is month-to-date (MTD), with presets and a custom range; cards display the time basis. Trend indicators are allowed under the comparable-window rule: MTD compares with the same elapsed days of the prior month (equal-length prior window for other periods). Apply volume floors and show "too early to compare" when the window is thin (e.g. first days of a month).`
+- why: Owner decision 2026-10-17 (assessment section 8, decisions 1 and 3). The comparable-window rule already in 2.5 ("later period comparisons must be comparable") is what lifts the Phase 1 restriction.
+- cost: spec edit only
+
+### 2026-10-17 docs/pulse-live-aggregation-rules — specs/INDEX.md pointer to the Pulse evolution decisions
+- [ ] target: specs/INDEX.md (Pulse row, near line 39)   change: edit
+- text: add to the Pulse row: `Pulse evolution decisions (2026-10-17: default MTD + custom range, client stale-time-only caching, request-time aggregation on raw tables, no new aggregate tables): pulse-evolution-assessment.md sections 5 and 8; read when changing Pulse periods, KPI read paths or metrics rules.` Place or copy the assessment under specs/ (e.g. specs/pulse-evolution-assessment-2026-10-17.md) first, scrubbed of tenant numbers, since the original contains live-tenant data and must not enter this public repo.
+- why: next Pulse session needs to find the decisions via INDEX (CLAUDE.md says "don't glob specs/"). specs/ is gitignored, so this stays local.
+- cost: 1 line in a non-always-loaded index
+
+### 2026-10-17 claude/cart-details-gst-inclusive — ignore Vercel build cancellations on non-main PRs
+- [ ] target: CLAUDE.md (Workflow, near the PR/CI line)   change: add
+- text: `PRs not targeting main: a red "Vercel" check whose log says "Canceled from the Vercel Dashboard" is the owner cancelling previews to save build minutes — not a failure. Don't investigate, redeploy or push empty commits; only a real build ERROR needs fixing.`
+- why: PR #220 (base develop) got 3 Auto-fix CI events for Vercel "failures"; the deployments (a7cbe175, 55acbcad) were CANCELED by the owner while the merge commit 4c271e6f built READY. Cost ~4 turns of checking.
+- cost: 1-2 lines, always-loaded (could instead sit in the Auto-fix/CI guidance)
+### 2026-10-17 feat/slim-buyer-activity-ledger — buyer_app_activity is a daily presence ledger; estimates/orders are not mirrored into it
+- [ ] target: .claude/rules/metrics.md (new bullet)   change: add
+- text: `app.buyer_app_activity is a presence ledger: one row per buyer / event / IST day (idempotency key d:<event>:<buyer>:<day>, ON CONFLICT DO NOTHING). Never write per-request or per-document rows to it and never add triggers on it. Estimates/orders are not mirrored; engagement readers use app.buyer_app_engagement (ledger UNION is_buyer_app estimates/orders by metric day). "Last seen" from the ledger is day-granular.`
+- why: before this change the table held 17x more rows than distinct buyer-days, a 152 ms RPC per call, 313 MB WAL (#1 producer, docs/incidents/2026-10-17-prod-state-and-buyer-call-audit.md F4) and mirror triggers on every estimate/order write; the DB was 26 MiB over plan. A reader/writer that reintroduces per-event rows would undo it.
+- cost: 1 bullet, path-scoped (rules auto-load on matching files)
 
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes

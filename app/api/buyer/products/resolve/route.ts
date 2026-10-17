@@ -13,7 +13,7 @@ type ResolveBody = {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { slim: true });
     if (!profile?.context.tenant_id || !supabaseAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

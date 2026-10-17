@@ -59,6 +59,29 @@ export function computeDocumentTotals(
   };
 }
 
+/**
+ * Display totals for a document: lines are qty x price (less line discount), subtotal is their sum,
+ * tax is 0 when rates are GST-inclusive (shown as "Included") else the backend tax amount, total = subtotal + tax.
+ * Stored line_total/subtotal can be ex-GST after a Zoho sync-back, so display derives them from the lines.
+ */
+export function computeDisplayDocumentTotals(
+  lines: Array<Pick<GstLineInput, 'qty' | 'unit_price' | 'disc_pct'>>,
+  options: {
+    gstInclusive: boolean;
+    taxAmount?: number | null;
+    discount_flat?: number | null;
+    freight?: number | null;
+    round_off?: number | null;
+  },
+): { subtotal: number; tax_amount: number; grand_total: number } {
+  const subtotal = roundMoney(lines.reduce((sum, line) => sum + roundMoney(computeLineTaxableAmount(line)), 0));
+  const tax_amount = options.gstInclusive ? 0 : roundMoney(options.taxAmount ?? 0);
+  const grand_total = roundMoney(
+    Math.max(subtotal - (options.discount_flat ?? 0), 0) + tax_amount + (options.freight ?? 0) + (options.round_off ?? 0),
+  );
+  return { subtotal, tax_amount, grand_total };
+}
+
 export function computeBuyerCartTotals(
   items: Array<{
     quantity: number;

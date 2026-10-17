@@ -12,10 +12,12 @@ import {
   shouldShowBuyerDesktopBreadcrumbs,
 } from '@/lib/buyer-routes';
 import { isActiveBuyerRefreshQuery } from '@/lib/buyer-refresh';
+import { createRefreshThrottle } from '@/lib/buyer-query-defaults';
 import { BuyerScrollRootContext } from '@/contexts/BuyerScrollContext';
 import { BuyerScrollChromeProvider, useBuyerScrollChromeState } from '@/contexts/BuyerScrollChromeContext';
 import { BuyerRealtimeProvider, useBuyerRealtimeContext } from '@/contexts/BuyerRealtimeContext';
 import { useBuyerMe } from '@/hooks/useBuyerMe';
+import { useBuyerStalePendingTokenRefresh } from '@/hooks/useBuyerStalePendingTokenRefresh';
 import { isNeedsMoreInfoBuyer, pendingBuyerDestination } from '@/lib/buyer-pending-destination';
 import { prefetchBuyerSiblings, useBuyerSiblings } from '@/hooks/useBuyerSiblings';
 import { readStoredBuyAsBuyerId } from '@/lib/buy-as-storage';
@@ -30,6 +32,9 @@ import { StorefrontLoginOverlay } from '@/components/buyer/auth/StorefrontLoginO
 interface BuyerShellProps {
   children: ReactNode;
 }
+
+// One pull-to-refresh round per 10 s: rage pulls must not each refetch every active buyer query.
+const throttlePullRefresh = createRefreshThrottle(10_000);
 
 function BuyerShellMain({
   children,
@@ -53,7 +58,7 @@ function BuyerShellMain({
   const showTabBarPadding = !isChromeless && !isDeep && tabBarVisible;
   const canPullToRefresh = !isBuyerChromelessRoute(pathname);
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = useCallback(() => throttlePullRefresh(async () => {
     if (triggerRefresh) {
       await triggerRefresh();
       return;
@@ -69,7 +74,7 @@ function BuyerShellMain({
       type: 'active',
       predicate: (query) => isActiveBuyerRefreshQuery(query),
     });
-  }, [queryClient, router, triggerRefresh]);
+  }), [queryClient, router, triggerRefresh]);
 
   return (
     <BuyerPullToRefresh
@@ -98,6 +103,7 @@ export function BuyerShell({ children }: BuyerShellProps) {
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const { data: me } = useBuyerMe();
+  useBuyerStalePendingTokenRefresh(me);
   const { data: siblings } = useBuyerSiblings(me?.mode === 'buyer');
   const defaultBuyerRemintAttemptedRef = useRef(false);
 

@@ -622,6 +622,7 @@ export function IntegrationsSettingsClient({ initialData }: IntegrationsSettings
                   integration={integration}
                   isSellerAdmin={isSellerAdmin}
                   onDisconnect={() => void runDisconnectIntegration(integration)}
+                  onResynced={() => void refetch()}
                 />
               ) : (
               <ConnectedIntegrationCard

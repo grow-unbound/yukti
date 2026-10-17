@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import type { BuyerAccessProfile, BuyerVisibleCatalog } from '@/lib/server/buyer-access';
 import { getVisibleBuyerCatalogs } from '@/lib/server/buyer-access';
 import { resolveBuyerAllowedTenantBrandIds } from '@/lib/server/buyer-brand-visibility';
+import { getBuyerCatalogContext } from '@/lib/server/buyer-catalog-context';
 import { getSelectedBuyerDeliveryFromRequest } from '@/lib/server/buyer-location-selection';
 import type { BuyerDeliveryLocation } from '@/lib/buyer-delivery-location';
 import { resolveNearestBuyerLocation } from '@/lib/server/buyer-routing';
@@ -84,6 +85,13 @@ export type BuyerProductEnrichmentParams = {
    * catalog, cart/order assembly) omit this and get the original self-contained resolution.
    */
   priceStockByProductId?: Map<string, { unit_price: number; on_hand: number }>;
+  /**
+   * Set when `scopedRows` came from a `load/search_products_scoped` call made WITH this buyer's id
+   * (unit_price is then the buyer's qty-1 price: buyer > cohort > all_buyers list, base fallback).
+   * Qty-1 lines take that price instead of a second `resolve_prices_batch` round trip. Never set it
+   * for rows fetched without the buyer (guest/price-list pricing) — they carry the base price.
+   */
+  scopedRowsPricedForBuyer?: boolean;
   /**
    * Full enrichment rows already fetched by the caller's own search_products_scoped /
    * load_products_scoped call (e.g. resolveCatalogScope) — skips enrichBuyerProducts's
@@ -346,21 +354,29 @@ export async function resolveBuyerCatalogSummaries(
     visibleCampaigns = (data ?? []) as BuyerVisibleCatalog[];
   }
 
-  const campaignIds = visibleCampaigns.map((campaign) => campaign.id);
   const counts = new Map<string, number>();
-  if (campaignIds.length > 0) {
-    const { data, error } = await db
-      .schema('app')
-      .from('campaigns')
-      .select('id, campaign_items(count)')
-      .eq('tenant_id', tenantId)
-      .in('id', campaignIds)
-      .is('deleted_at', null)
-      .is('campaign_items.deleted_at', null)
-      .limit(BUYER_CATALOG_SUMMARY_LIMIT);
-    if (error) throw new Error(error.message);
-    for (const row of (data ?? []) as unknown as CampaignCountRow[]) {
-      counts.set(row.id, Number(row.campaign_items?.[0]?.count ?? 0));
+  if (buyerId) {
+    // Item counts ride along in the cached per-buyer catalog context: no extra campaigns query.
+    const ctx = await getBuyerCatalogContext(tenantId, buyerId);
+    for (const campaign of visibleCampaigns) {
+      counts.set(campaign.id, ctx.itemCountByCampaignId[campaign.id] ?? 0);
+    }
+  } else {
+    const campaignIds = visibleCampaigns.map((campaign) => campaign.id);
+    if (campaignIds.length > 0) {
+      const { data, error } = await db
+        .schema('app')
+        .from('campaigns')
+        .select('id, campaign_items(count)')
+        .eq('tenant_id', tenantId)
+        .in('id', campaignIds)
+        .is('deleted_at', null)
+        .is('campaign_items.deleted_at', null)
+        .limit(BUYER_CATALOG_SUMMARY_LIMIT);
+      if (error) throw new Error(error.message);
+      for (const row of (data ?? []) as unknown as CampaignCountRow[]) {
+        counts.set(row.id, Number(row.campaign_items?.[0]?.count ?? 0));
+      }
     }
   }
 
@@ -391,6 +407,7 @@ export async function enrichBuyerProducts(
     priceStockByProductId = null,
     guestPricing = null,
     scopedRows = null,
+    scopedRowsPricedForBuyer = false,
     publicCatalog = null,
   } = params;
   const hiddenPriceEnquiry = publicCatalog?.pricingMode === 'hide_price_collect_enquiry';
@@ -417,11 +434,17 @@ export async function enrichBuyerProducts(
   // whose rows arrive here via `scopedRows`); re-applying it to an explicit
   // id list previously caused a real bug (a campaign product outside the
   // buyer's allowlist silently failed to resolve during checkout).
+  // Rows we fetch ourselves are fetched WITH the buyer so they arrive priced (qty 1) and the
+  // separate resolve_prices_batch call below is only needed for quantity-tiered lines.
+  const fetchPricedForBuyer = !scopedRows && !priceStockByProductId && Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry;
+  const rowsPricedForBuyer = Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry
+    && (fetchPricedForBuyer || scopedRowsPricedForBuyer);
   const rows: ScopedProductSearchRow[] = scopedRows ?? (
     orderedIds.length > 0
       ? (await searchScopedProducts({
           db,
           tenantId,
+          buyerId: fetchPricedForBuyer ? buyerId : null,
           ids: orderedIds,
           warehouseIds: inventoryWarehouseId ? [inventoryWarehouseId] : null,
           limit: Math.max(orderedIds.length, 1),
@@ -480,6 +503,11 @@ export async function enrichBuyerProducts(
     const grouped = new Map<number, string[]>();
     for (const productId of productIds) {
       const qty = Math.max(1, Number(qtyByProductId.get(productId) ?? 1));
+      if (qty === 1 && rowsPricedForBuyer) {
+        // Already priced by the scoped RPC (same precedence as resolve_prices_batch at qty 1).
+        priceMap.set(productId, Number(rowById.get(productId)?.unit_price ?? 0));
+        continue;
+      }
       const bucket = grouped.get(qty) ?? [];
       bucket.push(productId);
       grouped.set(qty, bucket);
@@ -747,6 +775,7 @@ export async function fetchBuyerCatalogPage(
     inventoryWarehouseId: params.inventoryWarehouseId,
     campaignByProductId: scope.campaignByProductId,
     scopedRows: Array.from(scope.textByProductId.values()),
+    scopedRowsPricedForBuyer: !params.guestPricing && Boolean(params.buyerId),
     guestPricing: params.guestPricing ?? null,
     publicCatalog: params.publicCatalog ?? null,
   });
@@ -927,6 +956,16 @@ export function isCatalogApprovalRequiredForProfile(
   return isPendingBuyerCatalogSession(profile) && !publicCatalog;
 }
 
+/** Buyer sessions read the live public catalog from the cached per-buyer context; guests/pending read it directly. */
+async function loadPublicCatalogForRequest(
+  db: SupabaseClient,
+  tenantId: string,
+  buyerId: string | null,
+): Promise<PublicCatalogRecord | null> {
+  if (!buyerId) return loadLivePublicCatalog(db, tenantId);
+  return (await getBuyerCatalogContext(tenantId, buyerId)).publicCatalog;
+}
+
 export async function resolveBuyerCatalogContext(
   db: SupabaseClient,
   request: NextRequest,
@@ -945,7 +984,7 @@ export async function resolveBuyerCatalogContext(
   const pendingBuyerCatalogSession = isPendingBuyerCatalogSession(profile);
   const buyerId = pendingBuyerCatalogSession ? null : (profile.buyer?.id ?? null);
   const isGuestLikePublicBrowse = profile.context.mode === 'guest' || pendingBuyerCatalogSession;
-  const publicCatalog = await loadLivePublicCatalog(db, tenantId);
+  const publicCatalog = await loadPublicCatalogForRequest(db, tenantId, buyerId);
   const publicBrowseAllowed = !pendingBuyerCatalogSession || publicCatalog?.accessMode === 'public_link';
   const effectivePublicCatalog = publicBrowseAllowed ? publicCatalog : null;
   const [scopeContext, catalogSummary] = await Promise.all([
@@ -986,7 +1025,7 @@ export async function resolveBuyerProductScopeContext(
   const buyerId = pendingBuyerCatalogSession ? null : (profile.buyer?.id ?? null);
   const isGuestLikePublicBrowse = profile.context.mode === 'guest' || pendingBuyerCatalogSession;
   const publicCatalog = preloadedPublicCatalog === undefined
-    ? await loadLivePublicCatalog(db, tenantId)
+    ? await loadPublicCatalogForRequest(db, tenantId, buyerId)
     : preloadedPublicCatalog;
   const publicBrowseAllowed = !pendingBuyerCatalogSession || publicCatalog?.accessMode === 'public_link';
   const effectivePublicCatalog = publicBrowseAllowed ? publicCatalog : null;

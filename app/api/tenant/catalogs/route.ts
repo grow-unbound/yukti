@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedClaims } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -479,7 +480,7 @@ export async function GET(req: NextRequest) {
   return getOptimizedCatalogsLanding(req, timedJson);
 }
 
-export async function POST(request: NextRequest) {
+async function POSTImpl(request: NextRequest) {
   const claims = await getVerifiedClaims(request);
 
   if (!claims.tenant_id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -823,3 +824,5 @@ export async function POST(request: NextRequest) {
   revalidatePublicCatalogCache(claims.tenant_id);
   return NextResponse.json({ catalog: insertedCatalog, whatsapp_notify: whatsappNotify });
 }
+
+export const POST = withBuyerContextRevalidation(POSTImpl);

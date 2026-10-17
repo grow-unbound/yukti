@@ -1,35 +1,18 @@
 import type { BuyerHomePromotionsResponse } from '@/lib/buyer-home-types';
 import { getVisibleBuyerCatalogs } from '@/lib/server/buyer-access';
+import { getBuyerCatalogContext } from '@/lib/server/buyer-catalog-context';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const PROMOTIONS_PREVIEW_LIMIT = 5;
 
 export async function loadBuyerHomePromotions(
-  db: SupabaseClient,
+  _db: SupabaseClient,
   tenantId: string,
   buyerId: string,
 ): Promise<BuyerHomePromotionsResponse> {
   const visibleCatalogs = await getVisibleBuyerCatalogs(tenantId, buyerId);
-  const catalogIds = visibleCatalogs.map((catalog) => catalog.id);
-  const countByCatalog = new Map<string, number>();
-
-  if (catalogIds.length > 0) {
-    const itemsRes = await db
-      .schema('app')
-      .from('campaign_items')
-      .select('campaign_id, campaigns!inner(tenant_id)')
-      .eq('campaigns.tenant_id', tenantId)
-      .in('campaign_id', catalogIds)
-      .is('deleted_at', null);
-
-    if (itemsRes.error) {
-      throw new Error(itemsRes.error.message);
-    }
-
-    for (const row of (itemsRes.data ?? []) as Array<{ campaign_id: string }>) {
-      countByCatalog.set(row.campaign_id, (countByCatalog.get(row.campaign_id) ?? 0) + 1);
-    }
-  }
+  // Item counts ride along in the cached per-buyer catalog context (no extra campaign_items query).
+  const { itemCountByCampaignId } = await getBuyerCatalogContext(tenantId, buyerId);
 
   return {
     latest_promotions_preview: visibleCatalogs
@@ -37,7 +20,7 @@ export async function loadBuyerHomePromotions(
       .map((catalog) => ({
         id: catalog.id,
         name: catalog.name,
-        product_count: countByCatalog.get(catalog.id) ?? 0,
+        product_count: itemCountByCampaignId[catalog.id] ?? 0,
         share_token: catalog.share_token,
         valid_until: catalog.valid_to,
         hero_image_url: catalog.hero_image_url ?? null,

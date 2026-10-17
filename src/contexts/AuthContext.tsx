@@ -11,6 +11,7 @@ import { clearApiAuthCache } from '@/lib/api-fetch';
 import posthog from 'posthog-js';
 import { resolveUserDisplayName } from '@/lib/user-display-name';
 import { catalogOriginForRequest, parseRequestHost } from '@/lib/storefront-host';
+import { decodeJwtPayloadClient } from '@/lib/jwt-client';
 
 export interface AuthUser {
   id: string;
@@ -63,18 +64,6 @@ type SessionClaims = {
   role: Role | null;
   locationIds: string[] | null;
 };
-
-function decodeJwtPayloadClient(token: string): Record<string, unknown> | null {
-  try {
-    const payload = token.split('.')[1];
-    if (!payload) return null;
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    return JSON.parse(atob(padded)) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
 
 function resolveUserPhone(user: Session['user']): string | undefined {
   const metadata = user.user_metadata as Record<string, unknown> | undefined;

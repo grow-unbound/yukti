@@ -1,9 +1,12 @@
 'use client';
 
-import { MessageCircle, Unplug } from 'lucide-react';
+import { useState } from 'react';
+import { MessageCircle, RefreshCw, Unplug } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import type { IntegrationCatalogItem } from '@/hooks/useIntegrationsSettings';
+import { apiPost } from '@/lib/api-fetch';
 
 function formatDate(value?: string | null) {
   if (!value) return 'Not set';
@@ -16,13 +19,31 @@ interface WhatsAppConnectedCardProps {
   integration: IntegrationCatalogItem;
   isSellerAdmin: boolean;
   onDisconnect: () => void;
+  onResynced?: () => void;
 }
 
-export function WhatsAppConnectedCard({ integration, isSellerAdmin, onDisconnect }: WhatsAppConnectedCardProps) {
+export function WhatsAppConnectedCard({ integration, isSellerAdmin, onDisconnect, onResynced }: WhatsAppConnectedCardProps) {
   const ti = integration.tenant_integration!;
   const config = ti.config ?? {};
   const displayPhoneNumber = typeof config.display_phone_number === 'string' ? config.display_phone_number : null;
   const isConnected = ti.status === 'connected';
+  const subscribedAt = typeof config.webhook_subscribed_at === 'string' ? config.webhook_subscribed_at : null;
+  const [resyncing, setResyncing] = useState(false);
+
+  async function handleResync() {
+    setResyncing(true);
+    try {
+      const res = await apiPost('/api/settings/integrations/whatsapp/resync', {});
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.error) throw new Error(json.error?.message ?? 'Failed to re-sync WhatsApp');
+      toast.success('WhatsApp message delivery re-synced');
+      onResynced?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to re-sync WhatsApp');
+    } finally {
+      setResyncing(false);
+    }
+  }
 
   return (
     <section className="overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-xs">
@@ -73,6 +94,20 @@ export function WhatsAppConnectedCard({ integration, isSellerAdmin, onDisconnect
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-cream-600">WABA ID</div>
             <div className="mt-1 truncate text-cream-900">{typeof config.waba_id === 'string' ? config.waba_id : '—'}</div>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cream-200 bg-cream-50 p-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-cream-600">Incoming messages</div>
+            <div className="mt-1 text-cream-900">
+              {subscribedAt ? `Receiving since ${formatDate(subscribedAt)}` : 'Not receiving — re-sync to start'}
+            </div>
+          </div>
+          {isSellerAdmin && isConnected ? (
+            <Button type="button" variant="outline" size="sm" disabled={resyncing} onClick={() => void handleResync()}>
+              <RefreshCw className={`h-4 w-4 ${resyncing ? 'animate-spin' : ''}`} />
+              Re-sync
+            </Button>
+          ) : null}
         </div>
         <p className="rounded-2xl border border-cream-200 bg-cream-50 px-4 py-3 text-xs leading-5 text-cream-600">
           WhatsApp usage billing is managed separately in your Meta Business Manager — it's not part of your Yukti plan.

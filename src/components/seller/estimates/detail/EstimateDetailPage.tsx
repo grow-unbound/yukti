@@ -45,6 +45,8 @@ import { useFlagState } from '@/hooks/useFeatureFlag';
 import { defaultPaymentTerms } from '@/lib/documents/composer-math';
 import type { EstimateComposerProductSearchRow } from '@/types/estimate-composer';
 import { formatNumberValue } from '@/lib/utils';
+import { computeDisplayDocumentTotals, computeLineTaxableAmount, roundMoney } from '@/lib/gst';
+import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
 import { SellerMobileTransactionDetail } from '@/components/seller/mobile';
 import { TransactionOriginMark } from '@/components/seller/transactional/TransactionOriginMark';
 
@@ -63,6 +65,7 @@ export function EstimateDetailPage({ id }: { id: string }) {
   const estimatesFlag = useFlagState('ESTIMATES');
   const { createSalesOrders, createInvoices } = useCreateFlags();
   const { data, isLoading, isError, error } = useEstimateDetail(id);
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
   useDocumentWhatsAppRealtime({
     kind: 'estimate',
     documentId: id,
@@ -84,7 +87,8 @@ export function EstimateDetailPage({ id }: { id: string }) {
     return data.items.map((line, index) => ({
       ...line,
       diff: 'clean' as const,
-      line_total: data.historical_items?.[index]?.line_total ?? line.line_total,
+      // qty x price, not the stored line_total (ex-GST after a Zoho sync-back)
+      line_total: roundMoney(computeLineTaxableAmount(line)),
     }));
   }, [data]);
 
@@ -102,28 +106,34 @@ export function EstimateDetailPage({ id }: { id: string }) {
         gst_inclusive: false,
       };
     }
-    const subtotal = data.subtotal ?? 0;
     const discountFlat = data.discount_flat ?? 0;
     const freight = data.freight ?? 0;
     const roundOff = data.round_off ?? 0;
-    return {
-      subtotal,
+    const display = computeDisplayDocumentTotals(data.items, {
+      gstInclusive,
+      taxAmount: data.tax_amount,
       discount_flat: discountFlat,
       freight,
-      taxable_amount: Math.max(subtotal - discountFlat, 0),
-      tax_amount: data.tax_amount ?? 0,
-      grand_total: data.total_amount ?? 0,
+      round_off: roundOff,
+    });
+    return {
+      subtotal: display.subtotal,
+      discount_flat: discountFlat,
+      freight,
+      taxable_amount: Math.max(display.subtotal - discountFlat, 0),
+      tax_amount: display.tax_amount,
+      grand_total: display.grand_total,
       round_off: roundOff,
       total_units: data.items.reduce((sum, line) => sum + line.qty, 0),
-      gst_inclusive: (data.tax_amount ?? 0) === 0,
+      gst_inclusive: gstInclusive,
     };
-  }, [data]);
+  }, [data, gstInclusive]);
 
   if (orderManagement === false || estimatesFlag === false) {
     return <FeatureDisabledState />;
   }
 
-  if (isLoading) {
+  if (isLoading || policyLoading) {
     return <DocumentDetailLoadingSkeleton />;
   }
 
@@ -261,7 +271,7 @@ export function EstimateDetailPage({ id }: { id: string }) {
           { label: 'Subtotal', value: totals.subtotal },
           ...(totals.discount_flat ? [{ label: 'Discount', value: `-${formatNumberValue(totals.discount_flat, 'CURRENCY_EXACT')}`, tone: 'muted' as const }] : []),
           ...(totals.freight ? [{ label: 'Freight', value: totals.freight }] : []),
-          { label: 'GST', value: totals.tax_amount },
+          { label: 'GST', value: totals.gst_inclusive ? 'Included in prices' : totals.tax_amount },
           { label: 'Total', value: totals.grand_total, emphasis: true },
         ]}
       />
@@ -404,7 +414,7 @@ export function EstimateDetailPage({ id }: { id: string }) {
               creditWarning={creditWarning}
               isInterState={isInterState}
               lineCount={diffLines.length}
-              gstInclusiveOverride={data.tax_amount === 0}
+              gstInclusiveOverride={totals.gst_inclusive}
             />
           </div>
         )}
