@@ -123,6 +123,79 @@ describe('buyer transaction detail page GST presentation', () => {
     expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
   });
 
+  it('shows resolved qty x unit price lines and totals when stored amounts are ex-GST under an inclusive policy', async () => {
+    useBuyerMeMock.mockReturnValue({
+      data: {
+        tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: true, gst_rate: 18 },
+      },
+    });
+    apiFetchMock.mockResolvedValue({
+      json: async () => ({
+        estimate: {
+          estimate_number: 'EST-1',
+          status: 'invoiced',
+          created_at: '2026-10-16T00:00:00.000Z',
+          valid_until: null,
+          notes: null,
+          place_of_supply: 'Telangana',
+          subtotal: 2669.5,
+          tax_total: 480.5,
+          total_amount: 3150,
+          items: [
+            {
+              tenant_product_id: 'tp-1',
+              product_name: 'Memory Card',
+              internal_sku: 'CP-NM64',
+              unit: 'pcs',
+              image_url: null,
+              qty: 3,
+              unit_price: 1050,
+              tax_rate: 18,
+              line_total: 2669.5,
+            },
+          ],
+        },
+      }),
+    });
+
+    const { TransactionDetailPage } = await import('@/components/buyer/documents/TransactionDetailPage');
+    render(
+      <TransactionDetailPage
+        id="est-1"
+        title="Estimate"
+        endpoint="/api/buyer/estimates/est-1"
+        docType="estimate"
+        respectBusinessPolicyTotals
+        pickDoc={(payload) => {
+          const e = payload.estimate;
+          return e
+            ? {
+                docNumber: e.estimate_number,
+                status: e.status,
+                primaryDate: e.created_at,
+                secondaryDate: null,
+                notes: null,
+                subtotal: e.subtotal,
+                tax_total: e.tax_total,
+                total_amount: e.total_amount,
+                placeOfSupply: e.place_of_supply,
+                items: e.items,
+              }
+            : null;
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('EST-1')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Included in Prices')).toBeInTheDocument();
+    expect(screen.getAllByText('₹3,150')).toHaveLength(3);
+    expect(screen.queryByText('₹2,669.50')).not.toBeInTheDocument();
+  });
+
   it('sets the tab title to the document number once the payload resolves', async () => {
     document.title = 'Order';
     useBuyerMeMock.mockReturnValue({

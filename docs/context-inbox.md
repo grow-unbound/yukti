@@ -90,6 +90,24 @@ Item format:
 - why: #187/#191 removed title lookups from PDP, orders, estimates, invoices, category, brand pages (app/(buyer)/buy/**/layout.tsx|page.tsx); Active CPU is the metered Vercel cost after the Pro upgrade.
 - cost: 1 line, path-scoped
 
+### 2026-10-17 claude/cart-details-gst-inclusive — Zoho API returns ex-GST amounts for inclusive docs
+- [ ] target: docs/architecture.md (pricing/integrations)   change: add
+- text: `Zoho sync-back stores API sub_total/tax_total/item_total as-is. For is_inclusive_tax docs Zoho returns them ex-GST (item_total 2669.50 for 3 x 1050 @18%) while the Zoho UI shows 3150, so stored line_total/subtotal/tax_amount of synced estimates are ex-GST. Estimate display surfaces derive lines = qty x unit_price, subtotal = sum, tax 0 when tenant gst_inclusive; invoices still read stored values.`
+- why: prod EST-019439 (tenant d601c35c): buyer row line_total 3150 soft-deleted 07:30:16, replaced 07:29:58 by sync row 2669.50; live Zoho GET confirmed sub_total 2669.50 / tax_total 480.50 / total 3150.00. Took ~8 turns to establish.
+- cost: 2 lines, always-loaded (or path-scoped to architecture.md)
+
+### 2026-10-17 claude/cart-details-gst-inclusive — worktree verify prerequisites
+- [ ] target: CLAUDE.md (Workflow, after the verify.sh line)   change: add
+- text: `In a worktree, vitest needs Supabase env: run \`set -a; . <main-checkout>/.env.local; set +a\` first (never dummy values, never print it). If tsc fails only inside \`.next/types\`, move that dir to archived/ and rerun.`
+- why: scripts/verify.sh failed on stale .next/types/validator.ts and on "Supabase URL and API key are required" in a fresh worktree; cost ~6 turns incl. a rejected dummy-env run.
+- cost: 1-2 lines, always-loaded (could instead live in scripts/verify.sh)
+
+### 2026-10-17 claude/cart-details-gst-inclusive — incident fact for MEMORY.md
+- [ ] target: MEMORY.md   change: add
+- text: `Zoho raw payload inspection: integration_entity_map.source_payload is empty (size limits). With explicit user OK, call Zoho from inside Postgres via pg_net (token refresh at accounts.zoho.in, then GET /books/v3/estimates/{external_ref}) so the vault token never leaves the DB; read back only numeric fields. Vault secret keys: client_id, client_secret, org_id, refresh_token, region.`
+- why: user authorized a one-off vault read on 2026-10-17; this kept the token out of the transcript and command text.
+- cost: 2 lines, MEMORY.md
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
