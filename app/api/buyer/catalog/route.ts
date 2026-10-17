@@ -38,7 +38,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    if (context.buyerId) {
+    // First page only: scroll pages (offset > 0) are the same view, and each write is a ~150 ms RPC.
+    if (context.buyerId && offset === 0) {
       void recordBuyerAppActivitySafe(supabaseAdmin as any, {
         tenantId: context.tenantId,
         buyerId: context.buyerId,

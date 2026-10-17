@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { loadBuyerMembership } from '@/lib/server/buyer-membership';
+
 type BuyerCohortRow = {
   id: string;
   allowed_tenant_brand_ids: string[] | null;
@@ -10,29 +12,9 @@ export async function resolveBuyerAllowedTenantBrandIds(
   tenantId: string,
   buyerId: string,
 ): Promise<string[] | null> {
-  const [buyerRes, membershipsRes] = await Promise.all([
-    db
-      .schema('app')
-      .from('buyers')
-      .select('default_cohort_id')
-      .eq('id', buyerId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle(),
-    db
-      .schema('app')
-      .from('cohort_members_active')
-      .select('cohort_id')
-      .eq('buyer_id', buyerId),
-  ]);
-
-  if (buyerRes.error) throw new Error(buyerRes.error.message);
-  if (membershipsRes.error) throw new Error(membershipsRes.error.message);
-
-  const cohortIds = new Set<string>(
-    ((membershipsRes.data ?? []) as Array<{ cohort_id: string }>).map((row) => row.cohort_id),
-  );
-  const defaultCohortId = (buyerRes.data as { default_cohort_id?: string | null } | null)?.default_cohort_id ?? null;
-  if (defaultCohortId) cohortIds.add(defaultCohortId);
+  const membership = await loadBuyerMembership(db, tenantId, buyerId);
+  const cohortIds = new Set<string>(membership.explicitCohortIds);
+  if (membership.defaultCohortId) cohortIds.add(membership.defaultCohortId);
 
   if (cohortIds.size === 0) return null;
 

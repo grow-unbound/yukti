@@ -15,6 +15,24 @@ Item format:
 
 ## Pending
 
+### 2026-10-17 perf/buyer-profile-slim — specs/ and docs/incidents/ are gitignored; say so
+- [ ] target: CLAUDE.md ("Where to look" table)   change: edit
+- text: append to the `specs/INDEX.md` row: "(`specs/` and `docs/incidents/` are gitignored in this public repo: new specs/logs stay local, don't `git add` them)"
+- why: two failed `git add` attempts and a wasted branch/PR step this session (.gitignore:82 `specs/`, `docs/*`).
+- cost: ~0 lines, always-loaded
+
+### 2026-10-17 perf/buyer-profile-slim — pre-existing red suite makes scripts/verify.sh always fail
+- [ ] target: MEMORY.md   change: add
+- text: `src/tests/sales-orders-landing-page.test.ts` fails on clean develop ("The URL must be of scheme file", @sentry/server-utils webpack import); verify.sh reports FAILED whenever it is in the affected set. Confirm with `git stash` + single-file run, then proceed and say so in the PR.
+- why: reproduced on origin/develop @ dee02e63; fixing the import/mock would restore a clean gate.
+- cost: 1 line, always-loaded (or fix the test and drop this)
+
+### 2026-10-17 perf/buyer-profile-slim — React cache() does not dedupe inside Route Handlers
+- [ ] target: .claude/rules/data-fetching.md   change: edit
+- text: in the `cache()` bullet add: "`cache()` only memoizes within a React render (Server Components). In `/api/*` Route Handlers it does not dedupe; share reads by passing the value down, or coalesce in-flight reads (see `src/lib/server/buyer-membership.ts`)."
+- why: PR1 needed the same buyers/cohort read shared by two helpers inside a route handler; the rule currently suggests `cache()` generically. (Not verified empirically on this Next version; confirm before accepting.)
+- cost: 1 line, path-scoped
+
 ### 2026-10-13 chore/prod-read-guard-and-db-map — CLAUDE.md should point at the DB map and match what the hook enforces
 - [ ] target: CLAUDE.md ("Where to look" table)   change: add
 - text: `| Tables, columns, RPCs, cron, query recipes/gotchas | docs/db/INDEX.md → one domain file; docs/db/recipes.md (read before debugging prod) |`

@@ -169,7 +169,7 @@ function formatAddress(address: unknown): string {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { includeTenant: true });
     if (!profile?.context.tenant_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -599,7 +599,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { includeTenant: true });
     if (!profile?.context.tenant_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
