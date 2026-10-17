@@ -167,6 +167,11 @@ Item format:
 - text: `PRs not targeting main: a red "Vercel" check whose log says "Canceled from the Vercel Dashboard" is the owner cancelling previews to save build minutes — not a failure. Don't investigate, redeploy or push empty commits; only a real build ERROR needs fixing.`
 - why: PR #220 (base develop) got 3 Auto-fix CI events for Vercel "failures"; the deployments (a7cbe175, 55acbcad) were CANCELED by the owner while the merge commit 4c271e6f built READY. Cost ~4 turns of checking.
 - cost: 1-2 lines, always-loaded (could instead sit in the Auto-fix/CI guidance)
+### 2026-10-17 feat/slim-buyer-activity-ledger — buyer_app_activity is a daily presence ledger; estimates/orders are not mirrored into it
+- [ ] target: .claude/rules/metrics.md (new bullet)   change: add
+- text: `app.buyer_app_activity is a presence ledger: one row per buyer / event / IST day (idempotency key d:<event>:<buyer>:<day>, ON CONFLICT DO NOTHING). Never write per-request or per-document rows to it and never add triggers on it. Estimates/orders are not mirrored; engagement readers use app.buyer_app_engagement (ledger UNION is_buyer_app estimates/orders by metric day). "Last seen" from the ledger is day-granular.`
+- why: before this change the table held 17x more rows than distinct buyer-days, a 152 ms RPC per call, 313 MB WAL (#1 producer, docs/incidents/2026-10-17-prod-state-and-buyer-call-audit.md F4) and mirror triggers on every estimate/order write; the DB was 26 MiB over plan. A reader/writer that reintroduces per-event rows would undo it.
+- cost: 1 bullet, path-scoped (rules auto-load on matching files)
 
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
