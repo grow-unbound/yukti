@@ -44,6 +44,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         buyerId: context.buyerId,
         eventName: 'catalog_viewed',
         path: req.nextUrl.pathname,
+        request: req,
+        role: profile.context.role,
         context: {
           campaign_id: req.nextUrl.searchParams.get('campaign_id')?.trim() ?? null,
           search: req.nextUrl.searchParams.get('search')?.trim() ?? null,
