@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
@@ -55,7 +56,7 @@ export async function GET(
 }
 
 // POST: add buyers to a static cohort
-export async function POST(
+async function POSTImpl(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -156,7 +157,7 @@ export async function POST(
 }
 
 // DELETE: remove a buyer from a static cohort (buyer_id in query string)
-export async function DELETE(
+async function DELETEImpl(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -225,3 +226,7 @@ export async function DELETE(
 
   return NextResponse.json({ ok: true, count });
 }
+
+export const POST = withBuyerContextRevalidation(POSTImpl);
+
+export const DELETE = withBuyerContextRevalidation(DELETEImpl);

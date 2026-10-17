@@ -35,7 +35,9 @@ export function withBuyerContextRevalidation<A extends [Request, ...unknown[]]>(
     const response = await handler(...args);
     if (response.status < 400) {
       const tenantId = args[0].headers.get('x-verified-tenant-id');
-      if (tenantId) {
+      if (!tenantId) {
+        console.warn('[buyer-context-cache] successful mutation without x-verified-tenant-id; buyer context cache not invalidated');
+      } else {
         try {
           revalidateBuyerContext(tenantId);
         } catch (error) {

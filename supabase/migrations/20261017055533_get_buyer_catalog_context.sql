@@ -20,7 +20,7 @@ SECURITY DEFINER
 SET search_path TO 'app', 'public'
 AS $function$
 DECLARE
-  c_campaign_cap constant integer := 200;
+  c_campaign_cap constant integer := 1000;  -- PostgREST's default row cap, which the old query implicitly had
   v_buyer jsonb;
   v_explicit uuid[];
   v_default uuid;
