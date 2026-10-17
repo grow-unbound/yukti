@@ -328,9 +328,9 @@ export function InboxEnquirySkeleton() {
 export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
   const { data, isLoading, isError } = useEnquiryTriage(entryId);
   const composer = useEstimateComposer(data?.estimateId ?? null).data;
-  const { gstInclusive } = useBusinessPolicy();
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
 
-  if (isLoading) return <InboxEnquirySkeleton />;
+  if (isLoading || policyLoading) return <InboxEnquirySkeleton />;
   if (isError || !data) {
     return <p className="text-base text-cream-600">Couldn&apos;t load enquiry items.</p>;
   }

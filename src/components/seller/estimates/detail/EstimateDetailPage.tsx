@@ -65,7 +65,7 @@ export function EstimateDetailPage({ id }: { id: string }) {
   const estimatesFlag = useFlagState('ESTIMATES');
   const { createSalesOrders, createInvoices } = useCreateFlags();
   const { data, isLoading, isError, error } = useEstimateDetail(id);
-  const { gstInclusive } = useBusinessPolicy();
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
   useDocumentWhatsAppRealtime({
     kind: 'estimate',
     documentId: id,
@@ -133,7 +133,7 @@ export function EstimateDetailPage({ id }: { id: string }) {
     return <FeatureDisabledState />;
   }
 
-  if (isLoading) {
+  if (isLoading || policyLoading) {
     return <DocumentDetailLoadingSkeleton />;
   }
 
