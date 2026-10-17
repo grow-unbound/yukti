@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { after, NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -130,7 +131,7 @@ const BulkToggleSchema = z.object({
   enabled: z.boolean(),
 });
 
-export async function PATCH(request: NextRequest) {
+async function PATCHImpl(request: NextRequest) {
   try {
     const claims = await getVerifiedClaims(request);
 
@@ -268,3 +269,5 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update buyer app access' }, { status: 500 });
   }
 }
+
+export const PATCH = withBuyerContextRevalidation(PATCHImpl);

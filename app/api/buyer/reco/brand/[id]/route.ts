@@ -17,7 +17,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<BuyerCatalogItem[] | { error: string }>> {
-  const profile = await requireBuyerAccessProfile(request);
+  const profile = await requireBuyerAccessProfile(request, { slim: true });
   if (!profile?.context.tenant_id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

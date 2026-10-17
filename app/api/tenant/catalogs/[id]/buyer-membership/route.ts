@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 // POST: add buyers to a manual campaign
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function POSTImpl(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const claims = await getVerifiedClaims(request);
   if (!claims.tenant_id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 }
 
 // DELETE: remove a buyer from a manual campaign (buyer_id in query string)
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function DELETEImpl(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const claims = await getVerifiedClaims(request);
   if (!claims.tenant_id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -169,3 +170,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   return NextResponse.json({ ok: true, count });
 }
+
+export const POST = withBuyerContextRevalidation(POSTImpl);
+
+export const DELETE = withBuyerContextRevalidation(DELETEImpl);

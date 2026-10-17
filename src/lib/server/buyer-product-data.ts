@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import type { BuyerAccessProfile, BuyerVisibleCatalog } from '@/lib/server/buyer-access';
 import { getVisibleBuyerCatalogs } from '@/lib/server/buyer-access';
 import { resolveBuyerAllowedTenantBrandIds } from '@/lib/server/buyer-brand-visibility';
+import { getBuyerCatalogContext } from '@/lib/server/buyer-catalog-context';
 import { getSelectedBuyerDeliveryFromRequest } from '@/lib/server/buyer-location-selection';
 import type { BuyerDeliveryLocation } from '@/lib/buyer-delivery-location';
 import { resolveNearestBuyerLocation } from '@/lib/server/buyer-routing';
@@ -346,21 +347,29 @@ export async function resolveBuyerCatalogSummaries(
     visibleCampaigns = (data ?? []) as BuyerVisibleCatalog[];
   }
 
-  const campaignIds = visibleCampaigns.map((campaign) => campaign.id);
   const counts = new Map<string, number>();
-  if (campaignIds.length > 0) {
-    const { data, error } = await db
-      .schema('app')
-      .from('campaigns')
-      .select('id, campaign_items(count)')
-      .eq('tenant_id', tenantId)
-      .in('id', campaignIds)
-      .is('deleted_at', null)
-      .is('campaign_items.deleted_at', null)
-      .limit(BUYER_CATALOG_SUMMARY_LIMIT);
-    if (error) throw new Error(error.message);
-    for (const row of (data ?? []) as unknown as CampaignCountRow[]) {
-      counts.set(row.id, Number(row.campaign_items?.[0]?.count ?? 0));
+  if (buyerId) {
+    // Item counts ride along in the cached per-buyer catalog context: no extra campaigns query.
+    const ctx = await getBuyerCatalogContext(tenantId, buyerId);
+    for (const campaign of visibleCampaigns) {
+      counts.set(campaign.id, ctx.itemCountByCampaignId[campaign.id] ?? 0);
+    }
+  } else {
+    const campaignIds = visibleCampaigns.map((campaign) => campaign.id);
+    if (campaignIds.length > 0) {
+      const { data, error } = await db
+        .schema('app')
+        .from('campaigns')
+        .select('id, campaign_items(count)')
+        .eq('tenant_id', tenantId)
+        .in('id', campaignIds)
+        .is('deleted_at', null)
+        .is('campaign_items.deleted_at', null)
+        .limit(BUYER_CATALOG_SUMMARY_LIMIT);
+      if (error) throw new Error(error.message);
+      for (const row of (data ?? []) as unknown as CampaignCountRow[]) {
+        counts.set(row.id, Number(row.campaign_items?.[0]?.count ?? 0));
+      }
     }
   }
 
@@ -927,6 +936,16 @@ export function isCatalogApprovalRequiredForProfile(
   return isPendingBuyerCatalogSession(profile) && !publicCatalog;
 }
 
+/** Buyer sessions read the live public catalog from the cached per-buyer context; guests/pending read it directly. */
+async function loadPublicCatalogForRequest(
+  db: SupabaseClient,
+  tenantId: string,
+  buyerId: string | null,
+): Promise<PublicCatalogRecord | null> {
+  if (!buyerId) return loadLivePublicCatalog(db, tenantId);
+  return (await getBuyerCatalogContext(tenantId, buyerId)).publicCatalog;
+}
+
 export async function resolveBuyerCatalogContext(
   db: SupabaseClient,
   request: NextRequest,
@@ -945,7 +964,7 @@ export async function resolveBuyerCatalogContext(
   const pendingBuyerCatalogSession = isPendingBuyerCatalogSession(profile);
   const buyerId = pendingBuyerCatalogSession ? null : (profile.buyer?.id ?? null);
   const isGuestLikePublicBrowse = profile.context.mode === 'guest' || pendingBuyerCatalogSession;
-  const publicCatalog = await loadLivePublicCatalog(db, tenantId);
+  const publicCatalog = await loadPublicCatalogForRequest(db, tenantId, buyerId);
   const publicBrowseAllowed = !pendingBuyerCatalogSession || publicCatalog?.accessMode === 'public_link';
   const effectivePublicCatalog = publicBrowseAllowed ? publicCatalog : null;
   const [scopeContext, catalogSummary] = await Promise.all([
@@ -986,7 +1005,7 @@ export async function resolveBuyerProductScopeContext(
   const buyerId = pendingBuyerCatalogSession ? null : (profile.buyer?.id ?? null);
   const isGuestLikePublicBrowse = profile.context.mode === 'guest' || pendingBuyerCatalogSession;
   const publicCatalog = preloadedPublicCatalog === undefined
-    ? await loadLivePublicCatalog(db, tenantId)
+    ? await loadPublicCatalogForRequest(db, tenantId, buyerId)
     : preloadedPublicCatalog;
   const publicBrowseAllowed = !pendingBuyerCatalogSession || publicCatalog?.accessMode === 'public_link';
   const effectivePublicCatalog = publicBrowseAllowed ? publicCatalog : null;

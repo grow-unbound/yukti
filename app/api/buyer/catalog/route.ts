@@ -16,7 +16,7 @@ const PAGE_LIMIT = 40;
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const profile = await requireBuyerAccessProfile(req);
+    const profile = await requireBuyerAccessProfile(req, { slim: true });
     if (!profile?.context.tenant_id || !supabaseAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

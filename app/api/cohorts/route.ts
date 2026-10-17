@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
@@ -402,7 +403,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POSTImpl(request: NextRequest) {
   const claims = await getVerifiedClaims(request);
 
   if (!claims.tenant_id) {
@@ -577,3 +578,5 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ cohort: { ...cohort, cached_member_count: cachedMemberCount } }, { status: 201 });
 }
+
+export const POST = withBuyerContextRevalidation(POSTImpl);
