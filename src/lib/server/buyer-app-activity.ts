@@ -63,11 +63,14 @@ function istDay(nowMs: number): string {
 /** True when this instance already recorded the same presence event for the buyer today (IST). */
 function isThrottledPresenceEvent(input: RecordBuyerAppActivityInput, day: string): boolean {
   if (!PRESENCE_EVENTS.has(input.eventName)) return false;
-  const key = `${input.tenantId}:${input.buyerId}:${input.eventName}`;
-  if (lastPresenceRecordedDay.get(key) === day) return true;
+  return lastPresenceRecordedDay.get(`${input.tenantId}:${input.buyerId}:${input.eventName}`) === day;
+}
+
+/** Remembered only after a successful write, so a failed RPC is retried on the next request. */
+function markPresenceRecorded(input: RecordBuyerAppActivityInput, day: string) {
+  if (!PRESENCE_EVENTS.has(input.eventName)) return;
   if (lastPresenceRecordedDay.size >= MAX_THROTTLE_ENTRIES) lastPresenceRecordedDay.clear();
-  lastPresenceRecordedDay.set(key, day);
-  return false;
+  lastPresenceRecordedDay.set(`${input.tenantId}:${input.buyerId}:${input.eventName}`, day);
 }
 
 // Mirrors the two events the PostHog parity check (S0) needs. Kept separate from the DB write so it
@@ -96,11 +99,12 @@ export async function recordBuyerAppActivitySafe(
   // Cross-instance backstop: a stable per-day key makes concurrent lambdas collapse to one row via
   // the (tenant_id, idempotency_key) unique constraint (DO NOTHING on conflict).
   const keyed: RecordBuyerAppActivityInput =
-    PRESENCE_EVENTS.has(input.eventName) && !input.idempotencyKey
+    PRESENCE_EVENTS.has(input.eventName) && !input.idempotencyKey && input.qualifiesForEngagement !== false
       ? { ...input, idempotencyKey: `d:${input.eventName}:${input.buyerId}:${day}` }
       : input;
   try {
     await recordBuyerAppActivity(db, keyed);
+    markPresenceRecorded(input, day);
   } catch (error) {
     console.warn('[buyer-app-activity] record failed', error);
   }

@@ -47,6 +47,23 @@ describe('recordBuyerAppActivitySafe daily presence ledger', () => {
     expect(rpc).toHaveBeenCalledTimes(3);
   });
 
+  it('retries after a failed write instead of suppressing the rest of the day', async () => {
+    const rpc = vi.fn().mockResolvedValueOnce({ error: { message: 'boom' } }).mockResolvedValue({ error: null });
+    const db = { schema: vi.fn(() => ({ rpc })) } as never;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await recordBuyerAppActivitySafe(db, { ...base, buyerId: 'b-day-7', eventName: 'catalog_viewed' });
+    await recordBuyerAppActivitySafe(db, { ...base, buyerId: 'b-day-7', eventName: 'catalog_viewed' });
+    await recordBuyerAppActivitySafe(db, { ...base, buyerId: 'b-day-7', eventName: 'catalog_viewed' });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('does not day-key a non-qualifying presence event', async () => {
+    const { db, rpc } = makeDb();
+    await recordBuyerAppActivitySafe(db, { ...base, buyerId: 'b-day-8', eventName: 'home_viewed', qualifiesForEngagement: false });
+    expect(rpc.mock.calls[0][1].p_idempotency_key).toBeNull();
+  });
+
   it('does not override an explicit idempotency key', async () => {
     const { db, rpc } = makeDb();
     await recordBuyerAppActivitySafe(db, { ...base, buyerId: 'b-day-5', eventName: 'session_started', idempotencyKey: 'custom' });
