@@ -10,6 +10,16 @@ export function buyerContextBuyerTag(tenantId: string, buyerId: string): string 
   return `buyer-ctx:${tenantId}:${buyerId}`;
 }
 
+/** Tag on one buyer's cached home rails ("order again", bestsellers). */
+export function buyerHomeTag(tenantId: string, buyerId: string): string {
+  return `buyer-home:${tenantId}:${buyerId}`;
+}
+
+/** Drop a buyer's cached home rails, e.g. right after they place an order/estimate. Route Handlers only. */
+export function revalidateBuyerHome(tenantId: string, buyerId: string): void {
+  revalidateTag(buyerHomeTag(tenantId, buyerId));
+}
+
 /**
  * Drop cached buyer context. Pass `buyerId` for a single buyer, omit it for the whole tenant.
  * Only effective from a Route Handler / Server Action (Next throws during render, so a render-time

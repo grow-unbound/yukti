@@ -4,6 +4,7 @@ import { loadLivePublicCatalog, type PublicCatalogRecord } from '@/lib/server/pu
 import { assembleBuyerCatalogItemsForProductIds } from '@/lib/server/buyer-assemble-catalog-items';
 import { resolveBuyerAllowedTenantBrandIds } from '@/lib/server/buyer-brand-visibility';
 import { getCachedGuestPricingContext } from '@/lib/server/public-catalog';
+import { buyerContextBuyerTag, buyerContextTenantTag, buyerHomeTag } from '@/lib/server/buyer-context-cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { BuyerCatalogItem } from '@/types/buyer';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -13,7 +14,35 @@ const ORDER_AGAIN_PREVIEW_LIMIT = 5;
 
 type EventSourceItem = { tenant_product_id: string; event_date: string; priority: number };
 
-export async function loadBuyerHomeReco(
+const HOME_RECO_REVALIDATE_SECONDS = 300;
+
+/**
+ * A buyer's home rails ("order again" + bestsellers), cached 5 min per (tenant, buyer): uncached it is
+ * ~11 REST reads + ~4 RPCs on every home load. The client already holds these rails for 15 min
+ * (BUYER_REFERENCE_QUERY_STALE_TIME). Dropped right after the buyer's own order/estimate
+ * (revalidateBuyerHome) and with the tenant context / public-catalog tags.
+ */
+export function loadBuyerHomeReco(
+  db: SupabaseClient,
+  tenantId: string,
+  buyerId: string,
+): Promise<BuyerHomeRecoResponse> {
+  return unstable_cache(
+    () => loadBuyerHomeRecoUncached(db, tenantId, buyerId),
+    ['buyer-home-reco', tenantId, buyerId],
+    {
+      revalidate: HOME_RECO_REVALIDATE_SECONDS,
+      tags: [
+        buyerHomeTag(tenantId, buyerId),
+        buyerContextBuyerTag(tenantId, buyerId),
+        buyerContextTenantTag(tenantId),
+        `public-catalog:${tenantId}`,
+      ],
+    },
+  )();
+}
+
+async function loadBuyerHomeRecoUncached(
   db: SupabaseClient,
   tenantId: string,
   buyerId: string,
