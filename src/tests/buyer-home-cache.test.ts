@@ -50,13 +50,13 @@ describe('home rails cache', () => {
     revalidateTagMock.mockReset();
   });
 
-  it('caches per tenant + buyer for 5 minutes with buyer, tenant and public-catalog tags', async () => {
+  it('caches per tenant + buyer for 5 minutes with buyer-home, buyer, tenant and public-catalog tags', async () => {
     const { loadBuyerHomeReco } = await import('@/lib/server/buyer-home-reco');
     await loadBuyerHomeReco(emptyDb(), 't1', 'b1');
     const call = cacheCalls.find((c) => c.keyParts[0] === 'buyer-home-reco');
     expect(call?.keyParts).toEqual(['buyer-home-reco', 't1', 'b1']);
     expect(call?.options.revalidate).toBe(300);
-    expect(call?.options.tags).toEqual(['buyer-home:t1:b1', 'buyer-ctx:t1', 'public-catalog:t1']);
+    expect(call?.options.tags).toEqual(['buyer-home:t1:b1', 'buyer-ctx:t1:b1', 'buyer-ctx:t1', 'public-catalog:t1']);
   });
 
   it('revalidateBuyerHome drops exactly that buyer\'s home tag', async () => {

@@ -19,6 +19,8 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
             gcTime: NAVIGATION_QUERY_GC_TIME,
             refetchOnWindowFocus: false,
             retry: noQueryRetry,
+            // Right from the first render on the buyer PWA (the effect below keeps it in sync on navigation).
+            refetchOnReconnect: !isBuyerAppPath(pathname),
           },
         },
       }),

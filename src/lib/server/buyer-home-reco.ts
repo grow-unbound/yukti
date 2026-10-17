@@ -4,7 +4,7 @@ import { loadLivePublicCatalog, type PublicCatalogRecord } from '@/lib/server/pu
 import { assembleBuyerCatalogItemsForProductIds } from '@/lib/server/buyer-assemble-catalog-items';
 import { resolveBuyerAllowedTenantBrandIds } from '@/lib/server/buyer-brand-visibility';
 import { getCachedGuestPricingContext } from '@/lib/server/public-catalog';
-import { buyerContextTenantTag, buyerHomeTag } from '@/lib/server/buyer-context-cache';
+import { buyerContextBuyerTag, buyerContextTenantTag, buyerHomeTag } from '@/lib/server/buyer-context-cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { BuyerCatalogItem } from '@/types/buyer';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -32,7 +32,12 @@ export function loadBuyerHomeReco(
     ['buyer-home-reco', tenantId, buyerId],
     {
       revalidate: HOME_RECO_REVALIDATE_SECONDS,
-      tags: [buyerHomeTag(tenantId, buyerId), buyerContextTenantTag(tenantId), `public-catalog:${tenantId}`],
+      tags: [
+        buyerHomeTag(tenantId, buyerId),
+        buyerContextBuyerTag(tenantId, buyerId),
+        buyerContextTenantTag(tenantId),
+        `public-catalog:${tenantId}`,
+      ],
     },
   )();
 }
