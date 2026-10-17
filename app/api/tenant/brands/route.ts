@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
@@ -644,7 +645,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTImpl(req: NextRequest) {
   try {
     const claims = await getVerifiedClaims(req);
 
@@ -696,3 +697,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 }
+
+export const POST = withBuyerContextRevalidation(POSTImpl);

@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
@@ -207,7 +208,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   return NextResponse.json(response, { headers: SELLER_CACHE_PERSONAL });
 }
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHImpl(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const claims = await getVerifiedClaims(request);
 
@@ -306,3 +307,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   return NextResponse.json({ brand: updated });
 }
+
+export const PATCH = withBuyerContextRevalidation(PATCHImpl);
