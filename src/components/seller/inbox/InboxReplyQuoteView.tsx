@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
 import { useEnquiryTriage } from '@/hooks/useInboxEntries';
 import { useEstimateComposer, useEstimateProductSearch, useSaveEstimateComposer, useSendEstimateDetailWhatsApp } from '@/hooks/useEstimates';
 import { computeDocumentTotals, type GstLineInput } from '@/lib/gst';
@@ -133,6 +134,8 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
 
   const rows = [...existingRows, ...addedRows];
 
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
+
   const totals = useMemo(() => {
     const lines: GstLineInput[] = rows.map((row) => ({
       qty: Number(row.qtyValue) || 0,
@@ -141,8 +144,8 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
       tax_pct: row.taxPct,
       diff: row.removed ? 'removed' : 'clean',
     }));
-    return computeDocumentTotals(lines);
-  }, [rows]);
+    return computeDocumentTotals(lines, gstInclusive);
+  }, [rows, gstInclusive]);
 
   function setPrice(key: string, value: string) {
     setPriceDrafts((prev) => ({ ...prev, [key]: value }));
@@ -254,6 +257,8 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
     composer,
     rows,
     totals,
+    gstInclusive,
+    policyLoading,
     notesValue,
     setNotes: (value: string) => setNotesDraft(value),
     setPrice,
@@ -481,15 +486,15 @@ export function InboxReplyQuoteBody({ draft }: { draft: InboxReplyQuoteDraft }) 
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-cream-700">Subtotal</span>
-            <span className="font-mono text-cream-900">{money(draft.totals.subtotal)}</span>
+            <span className="font-mono text-cream-900">{draft.policyLoading ? '—' : money(draft.totals.subtotal)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-cream-700">GST</span>
-            <span className="font-mono text-cream-900">{money(draft.totals.tax_amount)}</span>
+            <span className="font-mono text-cream-900">{draft.policyLoading ? '—' : draft.gstInclusive ? 'Included in prices' : money(draft.totals.tax_amount)}</span>
           </div>
           <div className="flex items-center justify-between border-t border-cream-200 pt-2 text-base">
             <span className="font-medium text-cream-900">Total</span>
-            <span className="font-mono font-semibold text-cream-950">{money(draft.totals.total)}</span>
+            <span className="font-mono font-semibold text-cream-950">{draft.policyLoading ? '—' : money(draft.totals.total)}</span>
           </div>
         </div>
       </div>

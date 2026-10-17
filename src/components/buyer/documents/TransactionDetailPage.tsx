@@ -246,6 +246,18 @@ export function TransactionDetailDocumentBody({
   const totalUnits = doc.items.reduce((sum, item) => sum + item.qty, 0);
   const deliveryPlace = doc.placeOfSupply?.trim() ?? '';
   const pricePending = docType === 'estimate' && doc.items.some((item) => item.unit_price == null);
+  // Estimates: stored line_total/subtotal can be ex-GST after a Zoho sync-back, so lines are
+  // qty x unit_price (the resolved price the buyer saw; buyer lines carry no line discount) and the
+  // subtotal is their sum. Partially-priced estimates hide totals via `pricePending`.
+  const showResolvedPrices = respectBusinessPolicyTotals && docType === 'estimate';
+  const displayItems = showResolvedPrices
+    ? doc.items.map((item) => (
+        item.unit_price == null ? item : { ...item, line_total: roundMoney(item.qty * item.unit_price) }
+      ))
+    : doc.items;
+  const displaySubtotal = showResolvedPrices
+    ? roundMoney(displayItems.reduce((sum, item) => sum + (item.line_total ?? 0), 0))
+    : doc.subtotal;
 
   return (
     <div className="flex flex-col space-y-3">
@@ -278,10 +290,10 @@ export function TransactionDetailDocumentBody({
       >
         {doc.items.length > 0 ? (
           <div>
-            {doc.items.map((item, idx) => (
+            {displayItems.map((item, idx) => (
               <React.Fragment key={item.tenant_product_id + idx}>
                 <LineItemRow item={item} />
-                {idx < doc.items.length - 1 && <div className="h-px bg-[var(--border-1)]" />}
+                {idx < displayItems.length - 1 && <div className="h-px bg-[var(--border-1)]" />}
               </React.Fragment>
             ))}
           </div>
@@ -299,7 +311,7 @@ export function TransactionDetailDocumentBody({
         </div>
       ) : (
       <TotalsBlock
-        subtotal={doc.subtotal}
+        subtotal={displaySubtotal}
         tax_total={doc.tax_total}
         total_amount={doc.total_amount}
         outstandingBalance={doc.outstandingBalance}
