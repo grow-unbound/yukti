@@ -144,6 +144,12 @@ Item format:
 - why: next Pulse session needs to find the decisions via INDEX (CLAUDE.md says "don't glob specs/"). specs/ is gitignored, so this stays local.
 - cost: 1 line in a non-always-loaded index
 
+### 2026-10-17 feat/slim-buyer-activity-ledger — buyer_app_activity is a daily presence ledger; estimates/orders are not mirrored into it
+- [ ] target: .claude/rules/metrics.md (new bullet)   change: add
+- text: `app.buyer_app_activity is a presence ledger: one row per buyer / event / IST day (idempotency key d:<event>:<buyer>:<day>, ON CONFLICT DO NOTHING). Never write per-request or per-document rows to it and never add triggers on it. Estimates/orders are not mirrored; engagement readers use app.buyer_app_engagement (ledger UNION is_buyer_app estimates/orders by metric day). "Last seen" from the ledger is day-granular.`
+- why: before this change the table held 17x more rows than distinct buyer-days, a 152 ms RPC per call, 313 MB WAL (#1 producer, docs/incidents/2026-10-17-prod-state-and-buyer-call-audit.md F4) and mirror triggers on every estimate/order write; the DB was 26 MiB over plan. A reader/writer that reintroduces per-event rows would undo it.
+- cost: 1 bullet, path-scoped (rules auto-load on matching files)
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
