@@ -17,6 +17,7 @@ import { BuyerScrollRootContext } from '@/contexts/BuyerScrollContext';
 import { BuyerScrollChromeProvider, useBuyerScrollChromeState } from '@/contexts/BuyerScrollChromeContext';
 import { BuyerRealtimeProvider, useBuyerRealtimeContext } from '@/contexts/BuyerRealtimeContext';
 import { useBuyerMe } from '@/hooks/useBuyerMe';
+import { useBuyerStalePendingTokenRefresh } from '@/hooks/useBuyerStalePendingTokenRefresh';
 import { isNeedsMoreInfoBuyer, pendingBuyerDestination } from '@/lib/buyer-pending-destination';
 import { prefetchBuyerSiblings, useBuyerSiblings } from '@/hooks/useBuyerSiblings';
 import { readStoredBuyAsBuyerId } from '@/lib/buy-as-storage';
@@ -102,6 +103,7 @@ export function BuyerShell({ children }: BuyerShellProps) {
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const { data: me } = useBuyerMe();
+  useBuyerStalePendingTokenRefresh(me);
   const { data: siblings } = useBuyerSiblings(me?.mode === 'buyer');
   const defaultBuyerRemintAttemptedRef = useRef(false);
 
