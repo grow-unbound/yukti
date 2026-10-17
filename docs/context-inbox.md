@@ -162,6 +162,12 @@ Item format:
 - why: next Pulse session needs to find the decisions via INDEX (CLAUDE.md says "don't glob specs/"). specs/ is gitignored, so this stays local.
 - cost: 1 line in a non-always-loaded index
 
+### 2026-10-17 claude/cart-details-gst-inclusive — ignore Vercel build cancellations on non-main PRs
+- [ ] target: CLAUDE.md (Workflow, near the PR/CI line)   change: add
+- text: `PRs not targeting main: a red "Vercel" check whose log says "Canceled from the Vercel Dashboard" is the owner cancelling previews to save build minutes — not a failure. Don't investigate, redeploy or push empty commits; only a real build ERROR needs fixing.`
+- why: PR #220 (base develop) got 3 Auto-fix CI events for Vercel "failures"; the deployments (a7cbe175, 55acbcad) were CANCELED by the owner while the merge commit 4c271e6f built READY. Cost ~4 turns of checking.
+- cost: 1-2 lines, always-loaded (could instead sit in the Auto-fix/CI guidance)
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
