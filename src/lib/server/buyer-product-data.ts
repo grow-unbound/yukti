@@ -436,7 +436,7 @@ export async function enrichBuyerProducts(
   // buyer's allowlist silently failed to resolve during checkout).
   // Rows we fetch ourselves are fetched WITH the buyer so they arrive priced (qty 1) and the
   // separate resolve_prices_batch call below is only needed for quantity-tiered lines.
-  const fetchPricedForBuyer = !scopedRows && Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry;
+  const fetchPricedForBuyer = !scopedRows && !priceStockByProductId && Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry;
   const rowsPricedForBuyer = Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry
     && (fetchPricedForBuyer || scopedRowsPricedForBuyer);
   const rows: ScopedProductSearchRow[] = scopedRows ?? (

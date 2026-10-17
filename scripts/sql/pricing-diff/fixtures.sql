@@ -24,7 +24,8 @@ BEGIN
     INTO v_p1, v_p2, v_p3
   FROM app.tenant_products tp WHERE tp.tenant_id = v_tenant AND tp.is_active AND tp.deleted_at IS NULL;
 
-  -- neutralise pre-existing lists/assignments for this tenant inside the transaction
+  -- neutralise pre-existing lists for this tenant inside the transaction (is_active=false is what the
+  -- resolvers honour; the assignment deleted_at update is belt and braces, neither resolver reads it)
   UPDATE app.price_list_assignments pla SET deleted_at = now()
    WHERE pla.price_list_id IN (SELECT id FROM app.price_lists WHERE tenant_id = v_tenant);
   UPDATE app.price_lists SET is_active = false WHERE tenant_id = v_tenant;
