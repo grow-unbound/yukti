@@ -86,6 +86,13 @@ export type BuyerProductEnrichmentParams = {
    */
   priceStockByProductId?: Map<string, { unit_price: number; on_hand: number }>;
   /**
+   * Set when `scopedRows` came from a `load/search_products_scoped` call made WITH this buyer's id
+   * (unit_price is then the buyer's qty-1 price: buyer > cohort > all_buyers list, base fallback).
+   * Qty-1 lines take that price instead of a second `resolve_prices_batch` round trip. Never set it
+   * for rows fetched without the buyer (guest/price-list pricing) — they carry the base price.
+   */
+  scopedRowsPricedForBuyer?: boolean;
+  /**
    * Full enrichment rows already fetched by the caller's own search_products_scoped /
    * load_products_scoped call (e.g. resolveCatalogScope) — skips enrichBuyerProducts's
    * own RPC round-trip entirely. Callers working from an arbitrary id list with no
@@ -400,6 +407,7 @@ export async function enrichBuyerProducts(
     priceStockByProductId = null,
     guestPricing = null,
     scopedRows = null,
+    scopedRowsPricedForBuyer = false,
     publicCatalog = null,
   } = params;
   const hiddenPriceEnquiry = publicCatalog?.pricingMode === 'hide_price_collect_enquiry';
@@ -426,11 +434,17 @@ export async function enrichBuyerProducts(
   // whose rows arrive here via `scopedRows`); re-applying it to an explicit
   // id list previously caused a real bug (a campaign product outside the
   // buyer's allowlist silently failed to resolve during checkout).
+  // Rows we fetch ourselves are fetched WITH the buyer so they arrive priced (qty 1) and the
+  // separate resolve_prices_batch call below is only needed for quantity-tiered lines.
+  const fetchPricedForBuyer = !scopedRows && Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry;
+  const rowsPricedForBuyer = Boolean(buyerId) && !guestPricing && !hiddenPriceEnquiry
+    && (fetchPricedForBuyer || scopedRowsPricedForBuyer);
   const rows: ScopedProductSearchRow[] = scopedRows ?? (
     orderedIds.length > 0
       ? (await searchScopedProducts({
           db,
           tenantId,
+          buyerId: fetchPricedForBuyer ? buyerId : null,
           ids: orderedIds,
           warehouseIds: inventoryWarehouseId ? [inventoryWarehouseId] : null,
           limit: Math.max(orderedIds.length, 1),
@@ -489,6 +503,11 @@ export async function enrichBuyerProducts(
     const grouped = new Map<number, string[]>();
     for (const productId of productIds) {
       const qty = Math.max(1, Number(qtyByProductId.get(productId) ?? 1));
+      if (qty === 1 && rowsPricedForBuyer) {
+        // Already priced by the scoped RPC (same precedence as resolve_prices_batch at qty 1).
+        priceMap.set(productId, Number(rowById.get(productId)?.unit_price ?? 0));
+        continue;
+      }
       const bucket = grouped.get(qty) ?? [];
       bucket.push(productId);
       grouped.set(qty, bucket);
@@ -756,6 +775,7 @@ export async function fetchBuyerCatalogPage(
     inventoryWarehouseId: params.inventoryWarehouseId,
     campaignByProductId: scope.campaignByProductId,
     scopedRows: Array.from(scope.textByProductId.values()),
+    scopedRowsPricedForBuyer: !params.guestPricing && Boolean(params.buyerId),
     guestPricing: params.guestPricing ?? null,
     publicCatalog: params.publicCatalog ?? null,
   });
