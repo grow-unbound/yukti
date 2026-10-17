@@ -11,6 +11,7 @@ import {
 } from '@/lib/server/transaction-numbers';
 import { BUYER_CACHE_PERSONAL } from '@/lib/server/buyer-cache-headers';
 import { recordBuyerAppActivitySafe } from '@/lib/server/buyer-app-activity';
+import { revalidateBuyerHome } from '@/lib/server/buyer-context-cache';
 import { inferCampaignIdForBuyerCart } from '@/lib/server/campaign-attribution';
 import { PAGE_SIZE, encodeCursor, decodeCursor } from '@/lib/pagination';
 import { resolveBuyerInventoryWarehouseId } from '@/lib/server/buyer-product-data';
@@ -396,6 +397,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<EstimateR
           error: err instanceof Error ? err.message : String(err),
         });
       }));
+    }
+
+    // The buyer's "order again" rail is cached server-side; show this document on their next home load.
+    try {
+      revalidateBuyerHome(tenant_id, buyer_id);
+    } catch (error) {
+      console.error('[buyer-home-cache] revalidate failed', error);
     }
 
     void recordBuyerAppActivitySafe(db as any, {

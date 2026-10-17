@@ -26,53 +26,35 @@ vi.mock('@/lib/supabase', () => ({
       if (schemaName !== 'app') throw new Error(`Unexpected schema: ${schemaName}`);
       return {
         rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
+          if (fn === 'get_buyer_catalog_context') {
+            const membership = state.flushed ? state.membershipAfterFlush : state.membership;
+            return {
+              data: {
+                buyer: {
+                  default_cohort_id: null,
+                  geography: null,
+                  explicit_cohort_ids: membership.map((row) => row.cohort_id),
+                },
+                campaigns: state.campaigns.map((campaign) => ({ ...campaign, item_count: 0 })),
+                cohorts: [],
+                public_catalog: null,
+              },
+              error: null,
+            };
+          }
           state.rpcCalls.push({ fn, args });
           if (state.rpcResult.data === 'flushed') state.flushed = true;
           return state.rpcResult;
         }),
-        from: (tableName: string) => {
-          if (tableName === 'campaigns') {
-            return {
-              select: () => ({
-                eq: () => ({
-                  eq: () => ({
-                    is: () => ({
-                      order: async () => ({ data: state.campaigns, error: null }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          }
-          if (tableName === 'buyers') {
-            return {
-              select: () => ({
-                eq: () => ({
-                  eq: () => ({
-                    maybeSingle: async () => ({
-                      data: { id: 'buyer-1', default_cohort_id: null, geography: null },
-                      error: null,
-                    }),
-                  }),
-                }),
-              }),
-            };
-          }
-          if (tableName === 'cohort_members_active') {
-            return {
-              select: () => ({
-                eq: async () => ({
-                  data: state.flushed ? state.membershipAfterFlush : state.membership,
-                  error: null,
-                }),
-              }),
-            };
-          }
-          throw new Error(`Unexpected table: ${tableName}`);
-        },
       };
     },
   },
+}));
+
+// unstable_cache needs Next's incremental cache; pass through so the RPC mock above is exercised.
+vi.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+  revalidateTag: vi.fn(),
 }));
 
 const cohortCampaign = {

@@ -5,6 +5,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { resolveWhatsAppClientForTenant, WhatsAppConfigError } from './whatsapp-client.ts';
+import { captureInboxEvent, classifyReplyFailure } from './whatsapp-inbox-analytics.ts';
 
 export function createAdminClient() {
   const url = Deno.env.get('SUPABASE_URL');
@@ -88,6 +89,9 @@ export async function dispatchMessageIds(
     }
     if (payloadType === 'text' && !payload?.text_body?.trim()) {
       await completeSend(admin, messageId, false, null, 'missing text_body');
+      await captureInboxEvent('whatsapp_reply_failed', msg.tenant_id, {
+        failure_class: classifyReplyFailure('missing text_body'),
+      });
       failed += 1;
       continue;
     }
@@ -95,6 +99,12 @@ export async function dispatchMessageIds(
     const { client: resolvedClient, source: credentialSource } = await resolveWhatsAppClientForTenant(admin, msg.tenant_id);
     if (!resolvedClient.isConfigured()) {
       await completeSend(admin, messageId, false, null, 'WhatsApp credentials not configured');
+      if (payloadType === 'text') {
+        await captureInboxEvent('whatsapp_reply_failed', msg.tenant_id, {
+          failure_class: classifyReplyFailure('WhatsApp credentials not configured'),
+          credential_source: credentialSource,
+        });
+      }
       failed += 1;
       continue;
     }
@@ -148,6 +158,9 @@ export async function dispatchMessageIds(
         providerMessageId: result.providerMessageId,
       });
       await completeSend(admin, messageId, true, result.providerMessageId, null);
+      if (payloadType === 'text') {
+        await captureInboxEvent('whatsapp_reply_sent', msg.tenant_id, { credential_source: credentialSource });
+      }
       dispatched += 1;
     } catch (err) {
       const reason = err instanceof WhatsAppConfigError
@@ -164,6 +177,12 @@ export async function dispatchMessageIds(
         providerError: reason,
       });
       await completeSend(admin, messageId, false, null, reason);
+      if (payloadType === 'text') {
+        await captureInboxEvent('whatsapp_reply_failed', msg.tenant_id, {
+          failure_class: classifyReplyFailure(reason),
+          credential_source: credentialSource,
+        });
+      }
       failed += 1;
     }
   }

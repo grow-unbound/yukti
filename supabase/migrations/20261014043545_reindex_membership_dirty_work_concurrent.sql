@@ -1,0 +1,11 @@
+-- Reclaim btree space on the membership work queue. app.membership_dirty_work is a high-churn
+-- queue (rows inserted, claimed, deleted every tick) that holds a handful of live rows, but its
+-- indexes keep the high-water-mark page count from past bursts (prod: ~6 MB of index for 8 rows).
+-- Counts toward the Free-plan 0.5 GB pg_database_size quota.
+--
+-- REINDEX TABLE CONCURRENTLY: no write-blocking lock. Single statement, no BEGIN/COMMIT, because
+-- REINDEX CONCURRENTLY cannot run inside a transaction block or a pipelined batch under
+-- `supabase db push` (same pattern as 20260713144707_*_fk_concurrent.sql).
+-- If it is interrupted it leaves invalid *_ccnew indexes; drop them and re-run.
+-- Idempotent; data and index definitions are unchanged.
+REINDEX TABLE CONCURRENTLY app.membership_dirty_work;

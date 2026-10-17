@@ -201,6 +201,11 @@ describe('requireBuyerAccessProfile', () => {
   });
 });
 
+vi.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+  revalidateTag: vi.fn(),
+}));
+
 describe('getVisibleBuyerCatalogs', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -217,76 +222,44 @@ describe('getVisibleBuyerCatalogs', () => {
     vi.mocked(supabaseAdmin!.schema).mockImplementation((schemaName: string) => {
       if (schemaName !== 'app') throw new Error(`Unexpected schema: ${schemaName}`);
       return {
-        from: vi.fn((tableName: string) => {
-          if (tableName === 'campaigns') {
-            return {
-              select: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  eq: vi.fn(() => ({
-                    is: vi.fn(() => ({
-                      order: vi.fn(async () => ({
-                        data: [
-                          {
-                            id: 'promo-live',
-                            tenant_id: 'tenant-1',
-                            name: 'Still live today',
-                            share_token: 'tok-live',
-                            valid_to: '2026-07-09T00:00:00.000Z',
-                            message: null,
-                            created_at: '2026-07-01T00:00:00.000Z',
-                            scope_type: 'all',
-                            scope_value: null,
-                            hero_image_url: null,
-                          },
-                          {
-                            id: 'promo-ended',
-                            tenant_id: 'tenant-1',
-                            name: 'Already ended',
-                            share_token: 'tok-ended',
-                            valid_to: '2026-07-08T00:00:00.000Z',
-                            message: null,
-                            created_at: '2026-06-30T00:00:00.000Z',
-                            scope_type: 'all',
-                            scope_value: null,
-                            hero_image_url: null,
-                          },
-                        ],
-                        error: null,
-                      })),
-                    })),
-                  })),
-                })),
-              })),
-            };
-          }
-
-          if (tableName === 'buyers') {
-            return {
-              select: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  eq: vi.fn(() => ({
-                    maybeSingle: vi.fn(async () => ({
-                      data: { id: 'buyer-1', default_cohort_id: null, geography: null },
-                      error: null,
-                    })),
-                  })),
-                })),
-              })),
-            };
-          }
-
-          if (tableName === 'cohort_members_active') {
-            return {
-              select: vi.fn(() => ({
-                eq: vi.fn(async () => ({
-                  data: [],
-                  error: null,
-                })),
-              })),
-            };
-          }
-
-          throw new Error(`Unexpected table: ${tableName}`);
+        rpc: vi.fn(async (fn: string) => {
+          if (fn !== 'get_buyer_catalog_context') throw new Error(`Unexpected rpc: ${fn}`);
+          return {
+            data: {
+              buyer: { default_cohort_id: null, geography: null, explicit_cohort_ids: [] },
+              campaigns: [
+                {
+                  id: 'promo-live',
+                  tenant_id: 'tenant-1',
+                  name: 'Still live today',
+                  share_token: 'tok-live',
+                  valid_to: '2026-07-09T00:00:00.000Z',
+                  message: null,
+                  created_at: '2026-07-01T00:00:00.000Z',
+                  scope_type: 'all',
+                  scope_value: null,
+                  hero_image_url: null,
+                  item_count: 3,
+                },
+                {
+                  id: 'promo-ended',
+                  tenant_id: 'tenant-1',
+                  name: 'Already ended',
+                  share_token: 'tok-ended',
+                  valid_to: '2026-07-08T00:00:00.000Z',
+                  message: null,
+                  created_at: '2026-06-30T00:00:00.000Z',
+                  scope_type: 'all',
+                  scope_value: null,
+                  hero_image_url: null,
+                  item_count: 1,
+                },
+              ],
+              cohorts: [],
+              public_catalog: null,
+            },
+            error: null,
+          };
         }),
       } as never;
     });

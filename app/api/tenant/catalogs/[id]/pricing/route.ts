@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
@@ -13,7 +14,7 @@ const PricingUpdateSchema = z.object({
   path: ['strategy_value'],
 });
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHImpl(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const claims = await getVerifiedClaims(request);
   if (!claims.tenant_id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (claims.role !== 'seller_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -78,3 +79,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   revalidatePublicCatalogCache(claims.tenant_id);
   return NextResponse.json({ ok: true, updated_count: updatedCount });
 }
+
+export const PATCH = withBuyerContextRevalidation(PATCHImpl);

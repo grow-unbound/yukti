@@ -2,10 +2,11 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
 import { NAVIGATION_QUERY_GC_TIME, NAVIGATION_QUERY_STALE_TIME } from '@/lib/query-navigation';
 import { noQueryRetry } from '@/lib/query-retry';
+import { applyBuyerQueryDefaults, isBuyerAppPath } from '@/lib/buyer-query-defaults';
 
 export function ReactQueryProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -18,11 +19,18 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
             gcTime: NAVIGATION_QUERY_GC_TIME,
             refetchOnWindowFocus: false,
             retry: noQueryRetry,
+            // Right from the first render on the buyer PWA (the effect below keeps it in sync on navigation).
+            refetchOnReconnect: !isBuyerAppPath(pathname),
           },
         },
       }),
   );
   const isBuyerRoute = pathname.startsWith('/buy');
+  const isBuyerApp = isBuyerAppPath(pathname);
+
+  useEffect(() => {
+    applyBuyerQueryDefaults(queryClient, isBuyerApp);
+  }, [queryClient, isBuyerApp]);
 
   return (
     <QueryClientProvider client={queryClient}>

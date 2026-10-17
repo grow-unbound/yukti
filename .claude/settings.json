@@ -42,9 +42,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|mcp__.*__(execute_sql|apply_migration|deploy_edge_function|merge_branch|reset_branch)",
+        "matcher": "Bash|mcp__.*__(execute_sql|apply_migration|deploy_edge_function|merge_branch|reset_branch|rebase_branch|create_branch|delete_branch|pause_project|restore_project|create_project|confirm_cost|query_logs|get_advisors|list_tables|list_extensions|list_migrations|list_edge_functions|get_edge_function|list_branches|generate_typescript_types|get_project|get_organization|list_projects|list_organizations|get_project_url|get_publishable_keys|get_cost|search_docs)",
         "hooks": [
-          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-prod.sh\"" }
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-prod.sh\""
+          }
         ]
       }
     ],
@@ -52,7 +55,19 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/wrap-nudge.sh\"" }
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/wrap-nudge.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*__(execute_sql|apply_migration|deploy_edge_function|merge_branch|reset_branch|rebase_branch|create_branch|delete_branch|pause_project|restore_project|create_project|confirm_cost|query_logs|get_advisors|list_tables|list_extensions|list_migrations|list_edge_functions|get_edge_function|list_branches|generate_typescript_types|get_project|get_organization|list_projects|list_organizations|get_project_url|get_publishable_keys|get_cost|search_docs)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/prod_sql_guard.py\" post"
+          }
         ]
       }
     ]

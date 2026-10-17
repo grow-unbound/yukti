@@ -3,9 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedClaims } from '@/lib/auth';
 import { getFlag, FLAGS } from '@/lib/flags';
 import { loadIntegrationsSettingsPayload } from '@/lib/integrations/server';
+import { subscribeWabaToApp, WHATSAPP_GRAPH_API_VERSION as GRAPH_API_VERSION } from '@/lib/integrations/whatsapp-graph';
 import { supabaseAdmin } from '@/lib/supabase';
-
-const GRAPH_API_VERSION = 'v21.0';
 
 function jsonError(status: number, message: string, code = 'ERROR') {
   return NextResponse.json({ data: null, error: { code, message } }, { status });
@@ -85,6 +84,14 @@ export async function POST(request: NextRequest) {
       return jsonError(502, registerResponse.error?.message ?? 'Failed to register the phone number on Meta Cloud API', 'REGISTRATION_FAILED');
     }
 
+    // Without a WABA -> app subscription Meta never delivers inbound messages or
+    // statuses for this number, so do not mark the integration connected.
+    const subscribeResult = await subscribeWabaToApp(wabaId, accessToken);
+    if (!subscribeResult.ok) {
+      console.error('[whatsapp/oauth/callback] WABA webhook subscription failed:', subscribeResult.message);
+      return jsonError(502, subscribeResult.message, 'WEBHOOK_SUBSCRIBE_FAILED');
+    }
+
     const displayPhoneNumber = await fetchDisplayPhoneNumber(phoneNumberId, accessToken);
 
     const now = new Date().toISOString();
@@ -112,6 +119,7 @@ export async function POST(request: NextRequest) {
             phone_number_id: phoneNumberId,
             business_id: businessId,
             display_phone_number: displayPhoneNumber,
+            webhook_subscribed_at: now,
           },
           connected_at: now,
           connected_by: claims.sub,
@@ -126,6 +134,9 @@ export async function POST(request: NextRequest) {
       .select('id')
       .single();
 
+    if (integrationError?.code === '23505') {
+      return jsonError(409, 'This WhatsApp number is already connected to another account', 'PHONE_ALREADY_CONNECTED');
+    }
     if (integrationError || !integrationRow) {
       console.error('[whatsapp/oauth/callback] Failed to upsert tenant_integration:', integrationError);
       return jsonError(500, 'Failed to save the integration', 'SAVE_FAILED');

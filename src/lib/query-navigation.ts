@@ -34,5 +34,12 @@ export const BUYER_REFERENCE_QUERY_GC_TIME = 60 * 60 * 1000;
 export const BUYER_PRICE_QUERY_STALE_TIME = 15_000;
 export const BUYER_PRICE_QUERY_GC_TIME = 60_000;
 
+// Buyer PWA list tier — catalog browse/search/category/brand/campaign LISTS (infinite queries).
+// A stale infinite query refetches EVERY loaded page, so a short TTL turns each back-navigation into N
+// API calls. List prices may lag up to 60 s on screen; the cart and PDP re-resolve prices at the
+// BUYER_PRICE_* tier below, so checkout never disagrees with what the buyer is charged.
+export const BUYER_LIST_QUERY_STALE_TIME = 60_000;
+export const BUYER_LIST_QUERY_GC_TIME = 2 * 60_000;
+
 // Product / family detail and their recommendations carry prices, so they use the BUYER_PRICE_* tier
 // above like cart resolution does — a longer tier let the PDP show a price the cart then disagreed with.

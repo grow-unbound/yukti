@@ -16,7 +16,7 @@ const PAGE_LIMIT = 40;
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const profile = await requireBuyerAccessProfile(req);
+    const profile = await requireBuyerAccessProfile(req, { slim: true });
     if (!profile?.context.tenant_id || !supabaseAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -38,12 +38,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    if (context.buyerId) {
+    // First page only: scroll pages (offset > 0) are the same view, and each write is a ~150 ms RPC.
+    if (context.buyerId && offset === 0) {
       void recordBuyerAppActivitySafe(supabaseAdmin as any, {
         tenantId: context.tenantId,
         buyerId: context.buyerId,
         eventName: 'catalog_viewed',
         path: req.nextUrl.pathname,
+        request: req,
+        role: profile.context.role,
         context: {
           campaign_id: req.nextUrl.searchParams.get('campaign_id')?.trim() ?? null,
           search: req.nextUrl.searchParams.get('search')?.trim() ?? null,
