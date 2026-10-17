@@ -10,6 +10,7 @@ import { firstNameFromValue, normalizeIndianPhone } from '@/lib/phone';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { LoginOtpCandidate } from '@/lib/server/buyer-otp-store';
 import { syncBuyerEntrySafe } from '@/lib/server/inbox-entries';
+import { loadBuyerMembership } from '@/lib/server/buyer-membership';
 
 export interface BuyerLoginCandidate {
   tenant_id: string;
@@ -1068,7 +1069,20 @@ export async function hasFreshOtpVerification(request: NextRequest): Promise<boo
   return Date.now() - stampedMs < RESUBMISSION_OTP_FRESHNESS_MS;
 }
 
-export async function requireBuyerAccessProfile(request: NextRequest): Promise<BuyerAccessProfile | null> {
+export interface RequireBuyerAccessProfileOptions {
+  /**
+   * Load the `tenants` row for a signed-in buyer session. Off by default: only
+   * `/api/buyer/me` renders the tenant block; every other route reads
+   * `profile.context.tenant_id` / `profile.buyer`. Guest and pure-preview
+   * sessions always load it (their greeting / validity check needs it).
+   */
+  includeTenant?: boolean;
+}
+
+export async function requireBuyerAccessProfile(
+  request: NextRequest,
+  options: RequireBuyerAccessProfileOptions = {},
+): Promise<BuyerAccessProfile | null> {
   if (!supabaseAdmin) {
     throw new Error('Server configuration error');
   }
@@ -1143,20 +1157,15 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
     buyerLookup = buyerLookup.or('buyer_app_enabled.eq.true,buyer_app_enabled.is.null');
   }
 
-  const [buyerRes, tenantRes, settingsRes] = await Promise.all([
+  const [buyerRes, tenantRes] = await Promise.all([
     buyerLookup.maybeSingle(),
-    tenantPromise,
-    db
-      .schema('app')
-      .from('tenant_settings')
-      .select('tenant_id, settings')
-      .eq('tenant_id', context.tenant_id)
-      .maybeSingle(),
+    options.includeTenant
+      ? tenantPromise
+      : Promise.resolve({ data: null, error: null } as Awaited<typeof tenantPromise>),
   ]);
 
   if (buyerRes.error) throw new Error(buyerRes.error.message);
   if (tenantRes.error) throw new Error(tenantRes.error.message);
-  if (settingsRes.error) throw new Error(settingsRes.error.message);
 
   if (!buyerRes.data) {
     return null;
@@ -1165,9 +1174,9 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
   // tenant_settings.buyer_app.enabled retired as a login/access gate — buyer
   // app is core MVP now, not a togglable module. app.catalogs.live_at gates
   // whether a storefront is live at all; buyers.buyer_app_enabled (already
-  // checked in buyerLookup above) is the per-buyer override. Settings are
-  // still fetched above for other fields (whatsapp_number, stock visibility);
-  // just no longer used to block access here.
+  // checked in buyerLookup above) is the per-buyer override. Tenant settings
+  // are not read here; routes that need them (e.g. /api/buyer/me) fetch their
+  // own, and this runs on every /api/buyer/* request.
   const greetingName =
     firstNameFromValue(buyerRes.data.contact_name)
     || buyerRes.data.contact_name?.trim()
@@ -1514,7 +1523,7 @@ export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string)
   }
 
   const db = supabaseAdmin;
-  const [catalogsRes, buyerRes, cohortMembershipRes] = await Promise.all([
+  const [catalogsRes, membership] = await Promise.all([
     db
       .schema('app')
       .from('campaigns')
@@ -1523,33 +1532,14 @@ export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string)
       .eq('status', 'published')
       .is('deleted_at', null)
       .order('created_at', { ascending: false }),
-    db
-      .schema('app')
-      .from('buyers')
-      .select('id, default_cohort_id, geography')
-      .eq('id', buyerId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle(),
-    db
-      .schema('app')
-      .from('cohort_members_active')
-      .select('cohort_id')
-      .eq('buyer_id', buyerId),
+    loadBuyerMembership(db, tenantId, buyerId),
   ]);
 
   if (catalogsRes.error) throw new Error(catalogsRes.error.message);
-  if (buyerRes.error) throw new Error(buyerRes.error.message);
-  if (cohortMembershipRes.error) throw new Error(cohortMembershipRes.error.message);
 
-  let explicitCohorts = new Set(
-    ((cohortMembershipRes.data ?? []) as Array<{ cohort_id: string }>).map((row) => row.cohort_id),
-  );
-  const buyerData = (buyerRes.data as {
-    default_cohort_id?: string | null;
-    geography?: { state?: string; city?: string; zone?: string } | null;
-  } | null);
-  const buyerDefaultCohortId = buyerData?.default_cohort_id ?? null;
-  const buyerGeography = buyerData?.geography ?? null;
+  let explicitCohorts = new Set(membership.explicitCohortIds);
+  const buyerDefaultCohortId = membership.defaultCohortId;
+  const buyerGeography = membership.geography;
   const catalogs = (catalogsRes.data ?? []) as BuyerVisibleCatalog[];
 
   const hasUnmatchedCohortCampaign = catalogs.some((catalog) => {
