@@ -141,6 +141,7 @@ export async function POST(request: NextRequest) {
           buyerId: candidate.buyer_id,
           eventName: 'session_started',
           path: request.nextUrl.pathname,
+          request,
           context: {
             role: candidate.role,
             principal_type: candidate.principal_type,
