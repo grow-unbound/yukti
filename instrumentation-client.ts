@@ -21,6 +21,11 @@ Sentry.init({
   // on every session). Both can be turned back on later — this is the
   // lightest-weight config that still captures every exception.
   tracesSampleRate: 0,
+  // Host (tenant storefront subdomain) on every event, so a user complaint
+  // like "wineyard.<domain> shows an error" can be searched directly.
+  initialScope: {
+    tags: { host: typeof window === 'undefined' ? undefined : window.location.host },
+  },
   ignoreErrors: [
     'ResizeObserver loop limit exceeded',
     'Non-Error promise rejection captured',
