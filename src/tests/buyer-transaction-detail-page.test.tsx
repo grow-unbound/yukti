@@ -244,7 +244,7 @@ describe('buyer transaction detail page GST presentation', () => {
         invoice: {
           invoice_number: 'INV-1', status: 'sent', invoice_date: '2026-10-01T00:00:00.000Z', due_date: null,
           place_of_supply: null, subtotal: 186.44, tax_total: 162, total_amount: 1062,
-          outstanding_balance: null, discount_flat: 0, freight: 0, round_off: 0,
+          outstanding_balance: null, discount_flat: 0, freight: 50, round_off: 0,
           items: [{ tenant_product_id: 'p1', product_name: 'P1', internal_sku: null, unit: 'pcs', image_url: null, qty: 10, unit_price: 100, tax_rate: 18, line_total: 1180, disc_pct: 10 }],
         },
       }),
@@ -266,7 +266,8 @@ describe('buyer transaction detail page GST presentation', () => {
     await waitFor(() => { expect(screen.getByText('INV-1')).toBeInTheDocument(); });
     expect(screen.getAllByText('₹900').length).toBeGreaterThan(0);
     expect(screen.getByText('₹162')).toBeInTheDocument();
-    expect(screen.getByText('₹1,062')).toBeInTheDocument();
+    expect(screen.getByText('Freight')).toBeInTheDocument();
+    expect(screen.getByText('₹1,112')).toBeInTheDocument();
     expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
   });
 

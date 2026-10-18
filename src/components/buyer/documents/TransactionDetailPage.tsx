@@ -187,6 +187,7 @@ function TotalsBlock({
   gstRate,
   respectBusinessPolicyTotals,
   derivedTotals,
+  adjustments,
 }: {
   subtotal: number;
   tax_total: number;
@@ -196,6 +197,7 @@ function TotalsBlock({
   gstRate: number;
   respectBusinessPolicyTotals: boolean;
   derivedTotals?: { subtotal: number; tax_amount: number; grand_total: number } | null;
+  adjustments?: { discount_flat?: number | null; freight?: number | null; round_off?: number | null } | null;
 }) {
   const displayTax = derivedTotals
     ? derivedTotals.tax_amount
@@ -225,6 +227,24 @@ function TotalsBlock({
             : `${formatNumberValue(displayTax, 'CURRENCY_EXACT')}${respectBusinessPolicyTotals && !derivedTotals ? ` (${gstRate}%)` : ''}`}
         </span>
       </div>
+      {(adjustments?.discount_flat ?? 0) !== 0 ? (
+        <div className="mt-2 flex justify-between text-[var(--b-text-body)] text-[var(--cream-600)]">
+          <span>Discount</span>
+          <span className="font-mono">-{formatNumberValue(adjustments?.discount_flat ?? 0, 'CURRENCY_EXACT')}</span>
+        </div>
+      ) : null}
+      {(adjustments?.freight ?? 0) !== 0 ? (
+        <div className="mt-2 flex justify-between text-[var(--b-text-body)] text-[var(--cream-600)]">
+          <span>Freight</span>
+          <span className="font-mono">{formatNumberValue(adjustments?.freight ?? 0, 'CURRENCY_EXACT')}</span>
+        </div>
+      ) : null}
+      {(adjustments?.round_off ?? 0) !== 0 ? (
+        <div className="mt-2 flex justify-between text-[var(--b-text-body)] text-[var(--cream-600)]">
+          <span>Round off</span>
+          <span className="font-mono">{formatNumberValue(adjustments?.round_off ?? 0, 'CURRENCY_EXACT')}</span>
+        </div>
+      ) : null}
       <div className="mt-3 flex justify-between border-t border-[var(--border-1)] pt-3">
         <span className="font-semibold text-[var(--cream-900)]">Total</span>
         <span className="font-mono text-lg font-bold text-[var(--cream-900)]">{formatNumberValue(displayTotal, 'CURRENCY_EXACT')}</span>
@@ -345,6 +365,9 @@ export function TransactionDetailDocumentBody({
         gstRate={gstRate}
         respectBusinessPolicyTotals={respectBusinessPolicyTotals}
         derivedTotals={derivedTotals}
+        adjustments={showResolvedPrices && docType === 'invoice'
+          ? { discount_flat: doc.discount_flat, freight: doc.freight, round_off: doc.round_off }
+          : null}
       />
       )}
 
