@@ -44,9 +44,10 @@ import {
   useConfirmSalesOrder,
 } from '@/hooks/useSalesOrderDetail';
 import { useCreateFlags } from '@/hooks/useCreateFlags';
+import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
 import { prefetchSalesOrderComposer } from '@/hooks/useSalesOrders';
 import { useFlagState } from '@/hooks/useFeatureFlag';
-import { mapSalesOrderDetailToComposerLines, formatEstimateChipLabel } from '@/lib/sales-orders/tenant-order-detail';
+import { deriveSalesOrderDisplayTotals, mapSalesOrderDetailToComposerLines, formatEstimateChipLabel } from '@/lib/sales-orders/tenant-order-detail';
 import { defaultPaymentTerms } from '@/lib/documents/composer-math';
 import { formatNumberValue } from '@/lib/utils';
 import type { SalesOrderUiStatus } from '@/types/tenant-sales-orders';
@@ -88,6 +89,7 @@ export function SalesOrderDetailClient({ id }: { id: string }) {
   const salesOrdersFlag = useFlagState('SALES_ORDERS');
   const { createInvoices } = useCreateFlags();
   const { data, isLoading, isError, error } = useSalesOrderDetail(id);
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
   useDocumentWhatsAppRealtime({
     kind: 'order',
     documentId: id,
@@ -128,22 +130,8 @@ export function SalesOrderDetailClient({ id }: { id: string }) {
         gst_inclusive: false,
       };
     }
-    const subtotal = data.subtotal ?? 0;
-    const discountFlat = data.discount_flat ?? 0;
-    const freight = data.freight ?? 0;
-    const roundOff = data.round_off ?? 0;
-    return {
-      subtotal,
-      discount_flat: discountFlat,
-      freight,
-      taxable_amount: Math.max(subtotal - discountFlat, 0),
-      tax_amount: data.tax_amount ?? 0,
-      grand_total: data.total_amount ?? 0,
-      round_off: roundOff,
-      total_units: data.lines.reduce((sum, line) => sum + line.qty, 0),
-      gst_inclusive: (data.tax_amount ?? 0) === 0,
-    };
-  }, [data]);
+    return deriveSalesOrderDisplayTotals(data, gstInclusive);
+  }, [data, gstInclusive]);
 
   const orderMeta = useMemo(() => {
     if (!data?.estimate) return null;
@@ -162,7 +150,7 @@ export function SalesOrderDetailClient({ id }: { id: string }) {
     return <FeatureDisabledState />;
   }
 
-  if (isLoading) {
+  if (isLoading || policyLoading) {
     return <DocumentDetailLoadingSkeleton />;
   }
 
@@ -246,7 +234,7 @@ export function SalesOrderDetailClient({ id }: { id: string }) {
           { label: 'Subtotal', value: totals.subtotal },
           ...(totals.discount_flat ? [{ label: 'Discount', value: `-${formatNumberValue(totals.discount_flat, 'CURRENCY_EXACT')}`, tone: 'muted' as const }] : []),
           ...(totals.freight ? [{ label: 'Freight', value: totals.freight }] : []),
-          { label: 'GST', value: totals.tax_amount },
+          { label: 'GST', value: totals.gst_inclusive ? 'Included in prices' : totals.tax_amount },
           { label: 'Total', value: totals.grand_total, emphasis: true },
         ]}
       />
@@ -386,7 +374,7 @@ export function SalesOrderDetailClient({ id }: { id: string }) {
               creditWarning={creditWarning}
               isInterState={isInterState}
               lineCount={diffLines.length}
-              gstInclusiveOverride={data.tax_amount === 0}
+              gstInclusiveOverride={totals.gst_inclusive}
             />
           </div>
         )}

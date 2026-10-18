@@ -271,6 +271,43 @@ describe('buyer transaction detail page GST presentation', () => {
     expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
   });
 
+  it('uses line discount and backend tax for exclusive-tax orders', async () => {
+    useBuyerMeMock.mockReturnValue({
+      data: { tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: false, gst_rate: 18 } },
+    });
+    apiFetchMock.mockResolvedValue({
+      json: async () => ({
+        order: {
+          order_number: 'SO-1', status: 'confirmed', placed_at: '2026-10-01T00:00:00.000Z', notes: null,
+          place_of_supply: null, subtotal: 186.44, tax_total: 162, total_amount: 1062,
+          discount_flat: 0, freight: 50, round_off: 0,
+          items: [{ tenant_product_id: 'p1', product_name: 'P1', internal_sku: null, unit: 'pcs', image_url: null, qty: 10, unit_price: 100, tax_rate: 18, line_total: 1180, disc_pct: 10 }],
+        },
+      }),
+    });
+    const { TransactionDetailPage } = await import('@/components/buyer/documents/TransactionDetailPage');
+    render(
+      <TransactionDetailPage
+        id="o-1" title="Order" endpoint="/api/buyer/orders/o-1" docType="order" respectBusinessPolicyTotals
+        pickDoc={(payload) => {
+          const i = payload.order;
+          return i ? {
+            docNumber: i.order_number, status: i.status, primaryDate: i.placed_at, secondaryDate: null, notes: null,
+            subtotal: i.subtotal, tax_total: i.tax_total, total_amount: i.total_amount, placeOfSupply: null,
+            discount_flat: i.discount_flat, freight: i.freight, round_off: i.round_off, items: i.items,
+          } : null;
+        }}
+      />,
+    );
+    await waitFor(() => { expect(screen.getByText('SO-1')).toBeInTheDocument(); });
+    expect(screen.getAllByText('₹900').length).toBeGreaterThan(0);
+    expect(screen.getByText('₹162')).toBeInTheDocument();
+    expect(screen.getByText('Freight')).toBeInTheDocument();
+    expect(screen.getByText('₹1,112')).toBeInTheDocument();
+    expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
+  });
+
   it('sets the tab title to the document number once the payload resolves', async () => {
     document.title = 'Order';
     useBuyerMeMock.mockReturnValue({
