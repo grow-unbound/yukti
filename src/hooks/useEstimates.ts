@@ -205,6 +205,7 @@ export function useConvertEstimateToOrder(estimateId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-detail', estimateId] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-composer', estimateId] });
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
     },
     onError: (e) => {
@@ -227,6 +228,7 @@ export function useConvertEstimateToInvoice(estimateId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-detail', estimateId] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-composer', estimateId] });
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
       void qc.invalidateQueries({ queryKey: ['tenant-invoices'] });
     },
@@ -273,6 +275,7 @@ export function useVoidEstimate(estimateId: string) {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-detail', estimateId] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-composer', estimateId] });
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
     },
   });
@@ -359,6 +362,7 @@ export function useSaveEstimateComposer(estimateId: string | null) {
     onSuccess: (payload) => {
       if (!estimateId) return;
       qc.setQueryData(['tenant-estimate-composer', estimateId], payload.data);
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-detail', estimateId] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
     },
@@ -397,6 +401,7 @@ export function useSendEstimate(estimateId: string | null) {
     },
     onSuccess: () => {
       toast.success('Estimate sent');
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       if (!estimateId) return;
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates-infinite'] });
@@ -433,6 +438,7 @@ export function useSendEstimateDetailWhatsApp(estimateId: string) {
     },
     onSuccess: () => {
       toast.success('Estimate sent');
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates-infinite'] });
     },

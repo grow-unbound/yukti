@@ -53,6 +53,9 @@ export interface EnquiryTriageLine {
   qty: number;
   /** Seller-side unit price; null when the enquiry was raised against hidden pricing. */
   unitPrice: number | null;
+  /** Line discount %, so qty x price matches the stored line amount. */
+  discPct: number;
+  imageUrl: string | null;
   targetMin: number | null;
   targetMax: number | null;
   buyerNote: string | null;
@@ -76,6 +79,11 @@ export interface EnquiryTriagePayload {
   hiddenPricing: boolean;
   collectTargetUnitPriceRange: boolean;
   totalAmount: number | null;
+  /** Header adjustments, so the panel's totals card needs no second (estimate detail) fetch. */
+  taxAmount: number;
+  discountFlat: number;
+  freight: number;
+  roundOff: number;
   notes: string | null;
   lines: EnquiryTriageLine[];
 }
