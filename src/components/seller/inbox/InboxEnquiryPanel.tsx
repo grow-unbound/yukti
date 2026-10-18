@@ -27,8 +27,16 @@ function quotedPriceLabel(line: EnquiryTriageLine) {
   return line.unitPrice != null && line.unitPrice > 0 ? money(line.unitPrice) : '-';
 }
 
+// Price captured on the estimate line at submission; the current resolved price is only a fallback
+// for lines that carry none (hidden-price enquiries).
+function documentUnitPrice(line: EnquiryTriageLine): number | null {
+  if (line.unitPrice != null && line.unitPrice > 0) return line.unitPrice;
+  return line.resolvedPrice != null && line.resolvedPrice > 0 ? line.resolvedPrice : null;
+}
+
 function resolvedPriceLabel(line: EnquiryTriageLine) {
-  return line.resolvedPrice != null && line.resolvedPrice > 0 ? money(line.resolvedPrice) : '-';
+  const price = documentUnitPrice(line);
+  return price != null ? money(price) : '-';
 }
 
 function expectedPriceLabel(line: EnquiryTriageLine) {
@@ -39,13 +47,22 @@ function lineAmountLabel(line: EnquiryTriageLine, showTargetPricing: boolean) {
   if (showTargetPricing) {
     return line.unitPrice != null && line.unitPrice > 0 ? money(line.unitPrice * line.qty) : '-';
   }
-  return line.resolvedPrice != null && line.resolvedPrice > 0 ? money(line.resolvedPrice * line.qty) : '-';
+  const price = documentUnitPrice(line);
+  return price != null ? money(price * line.qty) : '-';
+}
+
+// Caption for the current catalog price. "Base Price" when the line carries no stored price (it is the
+// price shown); "Current price" when it differs from the price stored on the estimate.
+function currentPriceCaption(line: EnquiryTriageLine): string | null {
+  if (line.resolvedPrice == null) return null;
+  if (line.unitPrice == null || line.unitPrice <= 0) return `Base Price ${money(line.resolvedPrice)}`;
+  return line.resolvedPrice !== line.unitPrice ? `Current price ${money(line.resolvedPrice)}` : null;
 }
 
 function desktopLineSubtext(line: EnquiryTriageLine) {
   const parts = [
     line.sku,
-    line.resolvedPrice != null ? `Base Price ${money(line.resolvedPrice)}` : null,
+    currentPriceCaption(line),
     `Stock ${line.onHand}`,
     hasVelocitySignal(line.velocity) ? velocityLabel(line.velocity) : null,
   ].filter(Boolean);
