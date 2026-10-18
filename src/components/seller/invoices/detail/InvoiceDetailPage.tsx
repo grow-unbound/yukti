@@ -38,6 +38,8 @@ import {
 import { prefetchInvoiceComposer } from '@/hooks/useInvoices';
 import { defaultPaymentTerms } from '@/lib/documents/composer-math';
 import { formatNumberValue } from '@/lib/utils';
+import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
+import { computeDisplayDocumentTotals, computeLineTaxableAmount, roundMoney } from '@/lib/gst';
 import type { EstimateComposerBuyerContext, EstimateComposerProductSearchRow, EstimateComposerTotals } from '@/types/estimate-composer';
 import { DocumentDetailLoadingSkeleton } from '@/components/seller/loading/SellerLoadingSkeletons';
 import { SendDocumentWhatsAppDialog } from '@/components/seller/shared/SendDocumentWhatsAppDialog';
@@ -61,6 +63,7 @@ export function InvoiceDetailPage({ id }: { id: string }) {
   const orderManagement = useFlagState('ORDER_MANAGEMENT');
   const invoicesFlag = useFlagState('INVOICES');
   const { data, isLoading, isError, error } = useInvoiceDetail(id);
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
   useDocumentWhatsAppRealtime({
     kind: 'invoice',
     documentId: id,
@@ -122,7 +125,8 @@ export function InvoiceDetailPage({ id }: { id: string }) {
       base_selling_price: line.rate,
       disc_pct: line.discount_pct,
       tax_pct: line.tax_pct ?? 0,
-      line_total: line.line_total ?? line.qty * line.rate,
+      // Price captured on the invoice line; stored line_total can be ex-GST (Zoho sync-back) or tax-inclusive.
+      line_total: roundMoney(computeLineTaxableAmount({ qty: line.qty, unit_price: line.rate, disc_pct: line.discount_pct })),
       scheme_tag: null,
       diff: 'clean' as const,
     }));
@@ -141,17 +145,27 @@ export function InvoiceDetailPage({ id }: { id: string }) {
         total_units: 0,
       };
     }
+    const display = computeDisplayDocumentTotals(
+      diffLines.map((line) => ({ qty: line.qty, unit_price: line.unit_price, disc_pct: line.disc_pct })),
+      {
+        gstInclusive,
+        taxAmount: data.totals.tax_amount,
+        discount_flat: data.totals.discount_amt,
+        freight: data.totals.freight,
+        round_off: data.totals.round_off,
+      },
+    );
     return {
-      subtotal: data.totals.subtotal,
+      subtotal: display.subtotal,
       discount_flat: data.totals.discount_amt,
       freight: data.totals.freight,
-      taxable_amount: data.totals.taxable,
-      tax_amount: data.totals.tax_amount,
+      taxable_amount: Math.max(display.subtotal - data.totals.discount_amt, 0),
+      tax_amount: display.tax_amount,
       round_off: data.totals.round_off,
-      grand_total: data.totals.grand_total,
+      grand_total: display.grand_total,
       total_units: diffLines.reduce((sum, line) => sum + line.qty, 0),
     };
-  }, [data, diffLines]);
+  }, [data, diffLines, gstInclusive]);
 
   const isInterState = useMemo(() => {
     if (!data) return false;
@@ -184,7 +198,7 @@ export function InvoiceDetailPage({ id }: { id: string }) {
     return <FeatureDisabledState />;
   }
 
-  if (isLoading) {
+  if (isLoading || policyLoading) {
     return <DocumentDetailLoadingSkeleton />;
   }
 
@@ -254,7 +268,7 @@ export function InvoiceDetailPage({ id }: { id: string }) {
           { label: 'Subtotal', value: totals.subtotal },
           ...(totals.discount_flat ? [{ label: 'Discount', value: `-${formatNumberValue(totals.discount_flat, 'CURRENCY_EXACT')}`, tone: 'muted' as const }] : []),
           ...(totals.freight ? [{ label: 'Freight', value: totals.freight }] : []),
-          { label: 'GST', value: totals.tax_amount },
+          { label: 'GST', value: gstInclusive ? 'Included in prices' : totals.tax_amount },
           { label: 'Total', value: totals.grand_total, emphasis: true },
           ...(data.amount_outstanding > 0 ? [{ label: 'Outstanding', value: data.amount_outstanding, tone: 'danger' as const }] : []),
         ]}
@@ -380,7 +394,7 @@ export function InvoiceDetailPage({ id }: { id: string }) {
               isInterState={isInterState}
               lineCount={diffLines.length}
               taxRows={taxRows}
-              gstInclusiveOverride={data.totals.tax_amount === 0}
+              gstInclusiveOverride={gstInclusive}
             />
             <InvoicePaymentsCard payments={data.payments} amountOutstanding={data.amount_outstanding} />
           </div>

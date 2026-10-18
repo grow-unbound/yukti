@@ -103,6 +103,7 @@ describe('loadBuyerDocumentLineItems', () => {
         unit_price: 500,
         tax_rate: 18,
         line_total: 1000,
+        disc_pct: null,
         buyer_target_unit_price_min: null,
         buyer_target_unit_price_max: null,
         image_url: null,

@@ -685,6 +685,7 @@ function OrdersPageInner() {
       return {
         endpoint: `/api/buyer/invoices/${desktopInvoiceId}`,
         docType: 'invoice',
+        respectBusinessPolicyTotals: true,
         pickDoc: (payload: any) => {
           const invoice = payload?.invoice;
           if (!invoice) return null;
@@ -699,6 +700,9 @@ function OrdersPageInner() {
             tax_total: invoice.tax_total,
             total_amount: invoice.total_amount,
             outstandingBalance: invoice.outstanding_balance,
+            discount_flat: invoice.discount_flat ?? 0,
+            freight: invoice.freight ?? 0,
+            round_off: invoice.round_off ?? 0,
             items: invoice.items ?? [],
           };
         },
