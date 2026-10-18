@@ -6,6 +6,8 @@ import { ChevronDown, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEnquiryTriage, useSubstituteEnquiryLine } from '@/hooks/useInboxEntries';
 import { useEstimateComposer } from '@/hooks/useEstimates';
+import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
+import { computeDisplayDocumentTotals } from '@/lib/gst';
 import type { EnquiryTriageLine } from '@/lib/inbox/enquiry-triage';
 import { buildTargetRangeLabel } from '@/lib/inbox/inbox-entry-copy';
 import { cn, formatNumberValue } from '@/lib/utils';
@@ -326,14 +328,25 @@ export function InboxEnquirySkeleton() {
 export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
   const { data, isLoading, isError } = useEnquiryTriage(entryId);
   const composer = useEstimateComposer(data?.estimateId ?? null).data;
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
 
-  if (isLoading) return <InboxEnquirySkeleton />;
+  if (isLoading || policyLoading) return <InboxEnquirySkeleton />;
   if (isError || !data) {
     return <p className="text-base text-cream-600">Couldn&apos;t load enquiry items.</p>;
   }
 
   const imageById = new Map((composer?.items ?? []).map((item) => [item.id, item.image_url ?? null]));
   const hasTotals = composer?.total_amount != null;
+  // Show qty x price lines summed (stored subtotal can be ex-GST after a Zoho sync-back); GST per tenant policy.
+  const displayTotals = composer
+    ? computeDisplayDocumentTotals(composer.items, {
+        gstInclusive,
+        taxAmount: composer.tax_amount,
+        discount_flat: composer.discount_flat,
+        freight: composer.freight,
+        round_off: composer.round_off,
+      })
+    : null;
   const showTargetPricing = data.hiddenPricing && data.collectTargetUnitPriceRange;
 
   return (
@@ -363,15 +376,15 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
           <div className="space-y-2 text-base">
             <div className="flex items-center justify-between">
               <span className="text-cream-700">Subtotal</span>
-              <span className="font-mono text-cream-900">{money(Number(composer?.subtotal ?? 0))}</span>
+              <span className="font-mono text-cream-900">{money(displayTotals?.subtotal ?? 0)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-cream-700">GST</span>
-              <span className="font-mono text-cream-900">{money(Number(composer?.tax_amount ?? 0))}</span>
+              <span className="font-mono text-cream-900">{gstInclusive ? 'Included in prices' : money(displayTotals?.tax_amount ?? 0)}</span>
             </div>
             <div className="flex items-center justify-between border-t border-cream-200 pt-2 text-base">
               <span className="font-medium text-cream-900">Total</span>
-              <span className="font-mono font-semibold text-cream-950">{money(Number(composer?.total_amount ?? 0))}</span>
+              <span className="font-mono font-semibold text-cream-950">{money(displayTotals?.grand_total ?? 0)}</span>
             </div>
           </div>
         </div>

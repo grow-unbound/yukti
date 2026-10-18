@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+let gstInclusiveMock = false;
 const saveMutateAsync = vi.fn().mockResolvedValue({ data: {} });
 const sendMutateAsync = vi.fn().mockResolvedValue({});
 
@@ -47,6 +48,10 @@ vi.mock('@/hooks/useInboxEntries', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useBusinessPolicy', () => ({
+  useBusinessPolicy: () => ({ creditEnabled: true, gstInclusive: gstInclusiveMock, gstRate: 18, policyLoading: false }),
+}));
+
 import { InboxReplyQuoteSheet } from '@/components/seller/inbox/InboxReplyQuoteSheet';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
 
@@ -70,6 +75,10 @@ function renderSheet() {
 }
 
 describe('InboxReplyQuoteSheet / InboxReplyQuoteView', () => {
+  beforeEach(() => {
+    gstInclusiveMock = false;
+  });
+
   it('shows every line regardless of price state, with target, resolved price, stock, and recent sales', () => {
     renderSheet();
     expect(screen.getByText('Gate Valve 150mm')).toBeInTheDocument();
@@ -109,5 +118,16 @@ describe('InboxReplyQuoteSheet / InboxReplyQuoteView', () => {
     expect(totalAfter).not.toBe(totalBefore);
     // 1900 * qty 1 at 18% GST = 2242, plus the unchanged line's 80 taxable + 14.4 tax = 94.4 -> 2336.40 total.
     expect(totalAfter).toBe('₹2,336.40');
+  });
+
+  it('adds no GST on top and shows it as included when the tenant policy is inclusive', () => {
+    gstInclusiveMock = true;
+    renderSheet();
+    const priceInputs = screen.getAllByRole('textbox').filter((el) => (el as HTMLInputElement).value === '');
+    fireEvent.change(priceInputs[0]!, { target: { value: '1900' } });
+
+    expect(screen.getByText('Included in prices')).toBeInTheDocument();
+    // 1900 + the unchanged line's 80 taxable = 1980, no GST added.
+    expect(screen.getByText('Total').nextElementSibling!.textContent).toBe('₹1,980');
   });
 });

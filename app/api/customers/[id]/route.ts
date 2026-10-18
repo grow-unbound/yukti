@@ -1,3 +1,4 @@
+import { withBuyerContextRevalidation } from '@/lib/server/buyer-context-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims, decodeJWTPayload } from '@/lib/auth';
@@ -113,7 +114,7 @@ export async function GET(
 
 // ─── PUT /api/customers/[id] ─────────────────────────────────────────────────
 
-export async function PUT(
+async function PUTImpl(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -352,7 +353,7 @@ export async function PUT(
 
 // ─── PATCH /api/customers/[id] — EP-03-004: deactivate / reactivate ──────────
 
-export async function PATCH(
+async function PATCHImpl(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -457,3 +458,7 @@ export async function PATCH(
 
   return NextResponse.json({ buyer: updatedBuyer });
 }
+
+export const PUT = withBuyerContextRevalidation(PUTImpl);
+
+export const PATCH = withBuyerContextRevalidation(PATCHImpl);

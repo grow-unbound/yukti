@@ -2,14 +2,31 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import type { Session, User } from '@supabase/supabase-js';
+import { unstable_cache } from 'next/cache';
 import type { NextRequest } from 'next/server';
 import { getBuyerAppContext, type BuyerAppContext } from '@/lib/auth';
-import { isoDateInTimeZone } from '@/lib/date-utils';
 import { DEFAULT_TENANT_SETTINGS_STORED } from '@/lib/tenant-settings/defaults';
 import { firstNameFromValue, normalizeIndianPhone } from '@/lib/phone';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { LoginOtpCandidate } from '@/lib/server/buyer-otp-store';
 import { syncBuyerEntrySafe } from '@/lib/server/inbox-entries';
+import {
+  buyerMatchesCatalog,
+  isCatalogVisibleOnCurrentIstDay,
+  type BuyerVisibleCatalog,
+} from '@/lib/server/buyer-catalog-visibility';
+import {
+  getBuyerCatalogContext,
+  fetchBuyerCatalogContextUncached,
+  visibleCampaignsFrom,
+  hasUnmatchedCohortCampaign,
+  type BuyerCatalogContext,
+} from '@/lib/server/buyer-catalog-context';
+import {
+  buyerContextBuyerTag,
+  buyerContextTenantTag,
+  revalidateBuyerContext,
+} from '@/lib/server/buyer-context-cache';
 
 export interface BuyerLoginCandidate {
   tenant_id: string;
@@ -50,7 +67,7 @@ interface BuyerRow {
   email?: string | null;
   credit_limit: number | null;
   phone: string | null;
-  gstin: string | null;
+  gstin?: string | null;
   buyer_app_enabled: boolean | null;
   geography?: { state?: string; city?: string; zone?: string; pincode?: string } | null;
   billing_address?: Record<string, unknown> | null;
@@ -66,6 +83,8 @@ interface TenantRow {
   settings?: Record<string, unknown> | null;
 }
 
+export type { BuyerVisibleCatalog };
+
 export interface BuyerAccessProfile {
   context: BuyerAppContext;
   buyer: BuyerRow | null;
@@ -73,18 +92,6 @@ export interface BuyerAccessProfile {
   greeting_name: string | null;
 }
 
-export interface BuyerVisibleCatalog {
-  id: string;
-  tenant_id: string;
-  name: string;
-  share_token: string;
-  valid_to: string | null;
-  message: string | null;
-  created_at: string;
-  scope_type: 'cohort' | 'buyer' | 'geography' | 'all';
-  scope_value: Record<string, unknown> | null;
-  hero_image_url: string | null;
-}
 
 type BuyerCandidateRpcRow = {
   kind: 'owner' | 'delegate';
@@ -1068,7 +1075,54 @@ export async function hasFreshOtpVerification(request: NextRequest): Promise<boo
   return Date.now() - stampedMs < RESUBMISSION_OTP_FRESHNESS_MS;
 }
 
-export async function requireBuyerAccessProfile(request: NextRequest): Promise<BuyerAccessProfile | null> {
+export interface RequireBuyerAccessProfileOptions {
+  /**
+   * Load the `tenants` row for a signed-in buyer session. Off by default: only
+   * `/api/buyer/me` renders the tenant block; every other route reads
+   * `profile.context.tenant_id` / `profile.buyer`. Guest and pure-preview
+   * sessions always load it (their greeting / validity check needs it).
+   */
+  includeTenant?: boolean;
+  /**
+   * Opt-in for hot read-only routes that only use `buyer.id`, `buyer_app_enabled`, `phone`,
+   * `geography` and the names: reads a slim buyer row through a 30 s per-buyer cache (tags
+   * `buyer-ctx:<tenant>[:<buyer>]`) instead of a live `buyers` read. A disabled buyer is cut off
+   * immediately when the seller-app access route invalidates, otherwise within the TTL. Never use
+   * on routes that need billing/GST/custom fields (onboarding, /me) or that mutate access.
+   */
+  slim?: boolean;
+}
+
+const SLIM_BUYER_REVALIDATE_SECONDS = 30;
+
+async function loadSlimBuyerCached(tenantId: string, buyerId: string): Promise<BuyerRow | null> {
+  return unstable_cache(
+    async () => {
+      if (!supabaseAdmin) throw new Error('Server configuration error');
+      const { data, error } = await supabaseAdmin
+        .schema('app')
+        .from('buyers')
+        .select('id, tenant_id, business_name, contact_name, phone, credit_limit, buyer_app_enabled, geography')
+        .eq('id', buyerId)
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return (data as BuyerRow | null) ?? null;
+    },
+    ['buyer-slim', tenantId, buyerId],
+    {
+      revalidate: SLIM_BUYER_REVALIDATE_SECONDS,
+      tags: [buyerContextBuyerTag(tenantId, buyerId), buyerContextTenantTag(tenantId)],
+    },
+  )();
+}
+
+export async function requireBuyerAccessProfile(
+  request: NextRequest,
+  options: RequireBuyerAccessProfileOptions = {},
+): Promise<BuyerAccessProfile | null> {
   if (!supabaseAdmin) {
     throw new Error('Server configuration error');
   }
@@ -1079,16 +1133,17 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
   }
 
   const db = supabaseAdmin;
-  const tenantPromise = db
-    .schema('app')
-    .from('tenants')
-    .select('id, business_name, slug, settings')
-    .eq('id', context.tenant_id)
-    .maybeSingle();
+  const loadTenant = () =>
+    db
+      .schema('app')
+      .from('tenants')
+      .select('id, business_name, slug, settings')
+      .eq('id', context.tenant_id!)
+      .maybeSingle();
 
   // Pure seller preview — no linked buyer account
   if (context.mode === 'preview' && !context.buyer_id) {
-    const { data: tenant, error } = await tenantPromise;
+    const { data: tenant, error } = await loadTenant();
     if (error) throw new Error(error.message);
 
     return {
@@ -1106,7 +1161,7 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
   }
 
   if (context.mode === 'guest') {
-    const { data: tenant, error } = await tenantPromise;
+    const { data: tenant, error } = await loadTenant();
     if (error) throw new Error(error.message);
     if (!tenant) return null;
 
@@ -1126,6 +1181,21 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
     return null;
   }
 
+  if (options.slim && !options.includeTenant) {
+    const slimBuyer = await loadSlimBuyerCached(context.tenant_id, context.buyer_id);
+    if (!slimBuyer) return null;
+    // Same gate as the live query below, applied after the (mode-independent) cached read.
+    if (context.mode !== 'preview' && context.role !== 'buyer_pending' && slimBuyer.buyer_app_enabled === false) {
+      return null;
+    }
+    return {
+      context,
+      buyer: slimBuyer,
+      tenant: null,
+      greeting_name: firstNameFromValue(slimBuyer.contact_name) || slimBuyer.contact_name?.trim() || slimBuyer.business_name || null,
+    };
+  }
+
   let buyerLookup = db
     .schema('app')
     .from('buyers')
@@ -1143,20 +1213,15 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
     buyerLookup = buyerLookup.or('buyer_app_enabled.eq.true,buyer_app_enabled.is.null');
   }
 
-  const [buyerRes, tenantRes, settingsRes] = await Promise.all([
+  const [buyerRes, tenantRes] = await Promise.all([
     buyerLookup.maybeSingle(),
-    tenantPromise,
-    db
-      .schema('app')
-      .from('tenant_settings')
-      .select('tenant_id, settings')
-      .eq('tenant_id', context.tenant_id)
-      .maybeSingle(),
+    options.includeTenant
+      ? loadTenant()
+      : Promise.resolve({ data: null, error: null } as Awaited<ReturnType<typeof loadTenant>>),
   ]);
 
   if (buyerRes.error) throw new Error(buyerRes.error.message);
   if (tenantRes.error) throw new Error(tenantRes.error.message);
-  if (settingsRes.error) throw new Error(settingsRes.error.message);
 
   if (!buyerRes.data) {
     return null;
@@ -1165,9 +1230,9 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
   // tenant_settings.buyer_app.enabled retired as a login/access gate — buyer
   // app is core MVP now, not a togglable module. app.catalogs.live_at gates
   // whether a storefront is live at all; buyers.buyer_app_enabled (already
-  // checked in buyerLookup above) is the per-buyer override. Settings are
-  // still fetched above for other fields (whatsapp_number, stock visibility);
-  // just no longer used to block access here.
+  // checked in buyerLookup above) is the per-buyer override. Tenant settings
+  // are not read here; routes that need them (e.g. /api/buyer/me) fetch their
+  // own, and this runs on every /api/buyer/* request.
   const greetingName =
     firstNameFromValue(buyerRes.data.contact_name)
     || buyerRes.data.contact_name?.trim()
@@ -1185,57 +1250,6 @@ export async function requireBuyerAccessProfile(request: NextRequest): Promise<B
       : null,
     greeting_name: greetingName || null,
   };
-}
-
-function buyerMatchesCatalog(
-  catalog: BuyerVisibleCatalog,
-  buyerId: string,
-  buyerDefaultCohortId: string | null,
-  explicitCohortIds: Set<string>,
-  buyerGeography: { state?: string; city?: string; zone?: string } | null,
-) {
-  if (catalog.scope_type === 'all') return true;
-
-  const scopeValue = (catalog.scope_value ?? {}) as {
-    buyer_id?: string;
-    buyer_ids?: string[];
-    cohort_id?: string;
-    geography?: { state?: string; city?: string; zone?: string };
-  };
-
-  if (catalog.scope_type === 'buyer') {
-    if (Array.isArray(scopeValue.buyer_ids) && scopeValue.buyer_ids.length > 0) {
-      return scopeValue.buyer_ids.includes(buyerId);
-    }
-    return scopeValue.buyer_id === buyerId;
-  }
-
-  if (catalog.scope_type === 'cohort') {
-    const cohortId = scopeValue.cohort_id;
-    if (!cohortId) return false;
-    if (explicitCohortIds.has(cohortId)) return true;
-    return buyerDefaultCohortId === cohortId;
-  }
-
-  if (catalog.scope_type === 'geography') {
-    const geo = scopeValue.geography;
-    if (!geo || !buyerGeography) return false;
-    if (geo.state && geo.state !== buyerGeography.state) return false;
-    if (geo.city && geo.city !== buyerGeography.city) return false;
-    if (geo.zone && geo.zone !== buyerGeography.zone) return false;
-    return true;
-  }
-
-  return false;
-}
-
-function isCatalogVisibleOnCurrentIstDay(validTo: string | null, now = new Date()): boolean {
-  if (!validTo) return true;
-
-  const validToDate = new Date(validTo);
-  if (Number.isNaN(validToDate.getTime())) return false;
-
-  return isoDateInTimeZone(validToDate) >= isoDateInTimeZone(now);
 }
 
 // ---------------------------------------------------------------------------
@@ -1513,64 +1527,19 @@ export async function getVisibleBuyerCatalogs(tenantId: string, buyerId: string)
     throw new Error('Server configuration error');
   }
 
-  const db = supabaseAdmin;
-  const [catalogsRes, buyerRes, cohortMembershipRes] = await Promise.all([
-    db
-      .schema('app')
-      .from('campaigns')
-      .select('id, tenant_id, name, share_token, valid_to, message, created_at, scope_type, scope_value, hero_image_url')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'published')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false }),
-    db
-      .schema('app')
-      .from('buyers')
-      .select('id, default_cohort_id, geography')
-      .eq('id', buyerId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle(),
-    db
-      .schema('app')
-      .from('cohort_members_active')
-      .select('cohort_id')
-      .eq('buyer_id', buyerId),
-  ]);
+  let ctx: BuyerCatalogContext = await getBuyerCatalogContext(tenantId, buyerId);
 
-  if (catalogsRes.error) throw new Error(catalogsRes.error.message);
-  if (buyerRes.error) throw new Error(buyerRes.error.message);
-  if (cohortMembershipRes.error) throw new Error(cohortMembershipRes.error.message);
-
-  let explicitCohorts = new Set(
-    ((cohortMembershipRes.data ?? []) as Array<{ cohort_id: string }>).map((row) => row.cohort_id),
-  );
-  const buyerData = (buyerRes.data as {
-    default_cohort_id?: string | null;
-    geography?: { state?: string; city?: string; zone?: string } | null;
-  } | null);
-  const buyerDefaultCohortId = buyerData?.default_cohort_id ?? null;
-  const buyerGeography = buyerData?.geography ?? null;
-  const catalogs = (catalogsRes.data ?? []) as BuyerVisibleCatalog[];
-
-  const hasUnmatchedCohortCampaign = catalogs.some((catalog) => {
-    if (catalog.scope_type !== 'cohort' || !isCatalogVisibleOnCurrentIstDay(catalog.valid_to)) return false;
-    const cohortId = ((catalog.scope_value ?? {}) as { cohort_id?: string }).cohort_id;
-    return Boolean(cohortId) && !explicitCohorts.has(cohortId as string) && buyerDefaultCohortId !== cohortId;
-  });
-
-  if (hasUnmatchedCohortCampaign && (await flushPendingBuyerMembership(tenantId, buyerId))) {
-    const refreshed = await db
-      .schema('app')
-      .from('cohort_members_active')
-      .select('cohort_id')
-      .eq('buyer_id', buyerId);
-    if (!refreshed.error) {
-      explicitCohorts = new Set(((refreshed.data ?? []) as Array<{ cohort_id: string }>).map((row) => row.cohort_id));
+  if (hasUnmatchedCohortCampaign(ctx) && (await flushPendingBuyerMembership(tenantId, buyerId))) {
+    // Membership just changed: re-read live for this request, and drop the cached copy so the
+    // next request does not repeat the flush. revalidateTag throws during render (SSR); there the
+    // cache simply catches up on its TTL.
+    ctx = await fetchBuyerCatalogContextUncached(tenantId, buyerId);
+    try {
+      revalidateBuyerContext(tenantId, buyerId);
+    } catch {
+      /* render-time caller: TTL expiry covers it */
     }
   }
 
-  return catalogs.filter((catalog) =>
-    isCatalogVisibleOnCurrentIstDay(catalog.valid_to)
-    && buyerMatchesCatalog(catalog, buyerId, buyerDefaultCohortId, explicitCohorts, buyerGeography),
-  );
+  return visibleCampaignsFrom(ctx, buyerId);
 }

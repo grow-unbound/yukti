@@ -11,7 +11,7 @@ export async function GET(
   request: NextRequest,
 ): Promise<NextResponse<BuyerHomeRecoResponse | { error: string }>> {
   try {
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { slim: true });
     if (!profile?.context.tenant_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

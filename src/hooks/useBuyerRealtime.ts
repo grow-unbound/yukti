@@ -211,14 +211,25 @@ export function useBuyerRealtime({ tenantId, buyerId, onNew, onPatch, onRefresh 
           }
     };
 
+    // Realtime notifications are best-effort: the UI also refetches on navigation/idle. A denied or
+    // failing join makes supabase-js rejoin with backoff forever, and every attempt is an
+    // "Unauthorized" realtime log line plus a policy evaluation on a 0.5 GB instance. Give up on the
+    // channel for this mount on the first failure instead of looping.
+    const giveUpOnFailure = (channel: ReturnType<typeof supabaseBrowser.channel>) =>
+      (status: string) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          void supabaseBrowser.removeChannel(channel);
+        }
+      };
+
     const buyerChannel = supabaseBrowser
       .channel(`buyer-notifications:${tenantId}:${buyerId}`, { config: { private: true } })
-      .on('broadcast', { event: 'notification' }, handleNotification)
-      .subscribe();
+      .on('broadcast', { event: 'notification' }, handleNotification);
+    buyerChannel.subscribe(giveUpOnFailure(buyerChannel));
     const catalogChannel = supabaseBrowser
       .channel(`catalog-updates:${tenantId}`, { config: { private: true } })
-      .on('broadcast', { event: 'notification' }, handleNotification)
-      .subscribe();
+      .on('broadcast', { event: 'notification' }, handleNotification);
+    catalogChannel.subscribe(giveUpOnFailure(catalogChannel));
 
     return () => {
       void supabaseBrowser.removeChannel(buyerChannel);

@@ -17,6 +17,8 @@ import type { BuyerProductPageRecos } from '@/lib/buyer-home-types';
 import {
   BUYER_REFERENCE_QUERY_STALE_TIME,
   BUYER_REFERENCE_QUERY_GC_TIME,
+  BUYER_LIST_QUERY_STALE_TIME,
+  BUYER_LIST_QUERY_GC_TIME,
   BUYER_PRICE_QUERY_STALE_TIME,
   BUYER_PRICE_QUERY_GC_TIME,
 } from '@/lib/query-navigation';
@@ -188,8 +190,8 @@ export function useBuyerCatalogSearchInfinite(
       return loaded;
     },
     placeholderData: keepPreviousData,
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
+    staleTime: BUYER_LIST_QUERY_STALE_TIME,
+    gcTime: BUYER_LIST_QUERY_GC_TIME,
   });
 }
 
@@ -232,8 +234,8 @@ export function useBuyerCatalogList(
       return loaded;
     },
     placeholderData: keepPreviousData,
-    staleTime: BUYER_PRICE_QUERY_STALE_TIME,
-    gcTime: BUYER_PRICE_QUERY_GC_TIME,
+    staleTime: BUYER_LIST_QUERY_STALE_TIME,
+    gcTime: BUYER_LIST_QUERY_GC_TIME,
     initialData: initialCatalogPage
       ? { pages: [initialCatalogPage], pageParams: [0] }
       : undefined,

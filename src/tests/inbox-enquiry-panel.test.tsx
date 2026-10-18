@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { EnquiryTriagePayload } from '@/lib/inbox/enquiry-triage';
 
+let gstInclusiveMock = false;
 const substituteMutateAsync = vi.fn().mockResolvedValue({});
 let triagePayload: EnquiryTriagePayload = {
   estimateId: 'est-1',
@@ -41,8 +42,12 @@ vi.mock('@/hooks/useInboxEntries', () => ({
 
 vi.mock('@/hooks/useEstimates', () => ({
   useEstimateComposer: () => ({
-    data: { items: [{ id: 'l1', image_url: null }], subtotal: 5000, tax_amount: 900, total_amount: 5900, seller_note: 'Ships Friday' },
+    data: { items: [{ id: 'l1', image_url: null, qty: 10, unit_price: 500, disc_pct: 0 }], subtotal: 4237.29, tax_amount: 900, total_amount: 5900, seller_note: 'Ships Friday' },
   }),
+}));
+
+vi.mock('@/hooks/useBusinessPolicy', () => ({
+  useBusinessPolicy: () => ({ creditEnabled: true, gstInclusive: gstInclusiveMock, gstRate: 18 }),
 }));
 
 import { InboxEnquiryPanel } from '@/components/seller/inbox/InboxEnquiryPanel';
@@ -58,6 +63,7 @@ function renderPanel() {
 
 describe('InboxEnquiryPanel', () => {
   beforeEach(() => {
+    gstInclusiveMock = false;
     substituteMutateAsync.mockClear();
     triagePayload = {
       estimateId: 'est-1',
@@ -95,6 +101,14 @@ describe('InboxEnquiryPanel', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByText('₹5,900')).toBeInTheDocument();
     expect(screen.getByText('Ships Friday')).toBeInTheDocument();
+  });
+
+  it('sums qty x price lines and shows GST as included when the tenant policy is inclusive', () => {
+    gstInclusiveMock = true;
+    renderPanel();
+    expect(screen.getByText('Included in prices')).toBeInTheDocument();
+    expect(screen.queryByText('₹5,900')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹4,237.29')).not.toBeInTheDocument();
   });
 
   it('drops the estimate-number/total header row and the estimate-level buyer note', () => {

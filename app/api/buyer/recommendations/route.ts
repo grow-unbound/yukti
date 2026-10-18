@@ -11,7 +11,7 @@ import type { BuyerProductPageRecos } from '@/lib/buyer-home-types';
 const EMPTY: BuyerProductPageRecos = { co_order: [], co_buyer: [], same_category: [] };
 
 export async function GET(request: NextRequest): Promise<NextResponse<BuyerProductPageRecos | { error: string }>> {
-  const profile = await requireBuyerAccessProfile(request);
+  const profile = await requireBuyerAccessProfile(request, { slim: true });
   if (!profile?.context.tenant_id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
