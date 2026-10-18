@@ -27,4 +27,13 @@ describe('computeDisplayDocumentTotals', () => {
     );
     expect(result).toEqual({ subtotal: 230, tax_amount: 0, grand_total: 219.5 });
   });
+
+  it('inclusive invoice (WYT/26-27/46568): 1 x 40 + 3 x 60 totals 220 despite ex-GST stored amounts', () => {
+    expect(
+      computeDisplayDocumentTotals(
+        [{ qty: 1, unit_price: 40 }, { qty: 3, unit_price: 60 }],
+        { gstInclusive: true, taxAmount: 33.56 },
+      ),
+    ).toEqual({ subtotal: 220, tax_amount: 0, grand_total: 220 });
+  });
 });
