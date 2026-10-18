@@ -1,15 +1,31 @@
 // Deterministic insight engine (assessment §6). Rules own their guards (minimum n, comparable windows, spread);
 // templates are keyed so copy can move to i18n later. Numbers and claims never come from a model.
-import type { PulseActGroup, PulseActNowResponse, PulseFunnelResponse, PulseScorecardResponse } from '@/types/pulse-v2';
+import type {
+  PulseActGroup,
+  PulseActNowResponse,
+  PulseFunnelResponse,
+  PulsePatternsResponse,
+  PulseScorecardResponse,
+  PulseSellThroughResponse,
+} from '@/types/pulse-v2';
 
 export type InsightSeverity = 'act' | 'watch' | 'info';
-export type InsightId = 'open_quotes_aging' | 'browse_no_quote' | 'activity_change' | 'reactivated';
+export type InsightId = 'open_quotes_aging' | 'browse_no_quote' | 'activity_change' | 'reactivated' | 'large_quote_gap' | 'brand_concentration';
 
 export interface Insight {
   id: InsightId;
   severity: InsightSeverity;
   textKey: `pulse.insight.${InsightId}`;
-  evidence: { n: number; value?: number; pct?: number; ageDays?: number; windowDays?: number; direction?: 'up' | 'down' };
+  evidence: {
+    n: number;
+    value?: number;
+    pct?: number;
+    pctOther?: number;
+    ageDays?: number;
+    windowDays?: number;
+    direction?: 'up' | 'down';
+    label?: string;
+  };
   action: { labelKey: string; href: string };
 }
 
@@ -21,12 +37,21 @@ export const INSIGHT_MIN = {
   activityBase: 20,
   activityChange: 0.2,
   reactivated: 3,
+  largeQuotes: 5,
+  smallQuotes: 5,
+  largeQuoteGapPts: 0.15,
+  brandShare: 0.5,
+  brandCount: 3,
+  brandInvoicedValue: 10_000,
 } as const;
 
 export interface InsightInput {
   scorecard: PulseScorecardResponse | null;
   actNow: PulseActNowResponse | null;
   funnel: PulseFunnelResponse | null;
+  /** Brand-dimension sell-through for the same window (null while loading or when capped). */
+  brands?: PulseSellThroughResponse | null;
+  patterns?: PulsePatternsResponse | null;
   now?: Date;
 }
 
@@ -95,7 +120,38 @@ const reactivated: Rule = ({ scorecard }) => {
   };
 };
 
-const RULES: Rule[] = [openQuotesAging, browseNoQuote, activityChange, reactivated];
+const largeQuoteGap: Rule = ({ patterns }) => {
+  const sizes = patterns?.quote_sizes;
+  if (!sizes || sizes.large.count < INSIGHT_MIN.largeQuotes || sizes.small.count < INSIGHT_MIN.smallQuotes) return null;
+  const large = sizes.large.converted / sizes.large.count;
+  const small = sizes.small.converted / sizes.small.count;
+  if (small - large < INSIGHT_MIN.largeQuoteGapPts) return null;
+  return {
+    id: 'large_quote_gap',
+    severity: 'act',
+    textKey: 'pulse.insight.large_quote_gap',
+    evidence: { n: sizes.large.count, value: sizes.threshold, pct: Math.round(large * 100), pctOther: Math.round(small * 100) },
+    action: { labelKey: 'pulse.action.open_inbox', href: '/inbox' },
+  };
+};
+
+const brandConcentration: Rule = ({ brands }) => {
+  if (!brands || brands.capped || !brands.totals) return null;
+  const { invoiced_value: total, items } = brands.totals;
+  const topBrand = brands.rows[0];
+  if (items < INSIGHT_MIN.brandCount || total < INSIGHT_MIN.brandInvoicedValue || !topBrand) return null;
+  const share = topBrand.invoiced_value / total;
+  if (share < INSIGHT_MIN.brandShare) return null;
+  return {
+    id: 'brand_concentration',
+    severity: 'watch',
+    textKey: 'pulse.insight.brand_concentration',
+    evidence: { n: items, pct: Math.round(share * 100), label: topBrand.name },
+    action: { labelKey: 'pulse.action.see_sales', href: '/pulse#what-sells' },
+  };
+};
+
+const RULES: Rule[] = [openQuotesAging, browseNoQuote, largeQuoteGap, activityChange, brandConcentration, reactivated];
 const SEVERITY_ORDER: Record<InsightSeverity, number> = { act: 0, watch: 1, info: 2 };
 
 /** All insights that pass their guards, most urgent first, at most `limit`. */

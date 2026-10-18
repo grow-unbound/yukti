@@ -79,3 +79,69 @@ export interface PulseFunnelResponse {
 }
 
 export type { PulseWindow };
+
+export type PulseSellDimension = 'category' | 'brand' | 'product';
+
+export interface PulseSellRow {
+  id: string | null;
+  name: string;
+  quoted_value: number;
+  quoted_qty: number;
+  quoted_docs: number;
+  invoiced_value: number;
+  invoiced_qty: number;
+  invoiced_docs: number;
+}
+
+export interface PulseSellThroughResponse {
+  period: { key: PulsePeriodKey; label: string; thin: boolean };
+  window: { from: string; to_excl: string };
+  dimension: PulseSellDimension;
+  /** The line-level view covers at most 92 days; longer windows are skipped and the UI explains why. */
+  capped: boolean;
+  rows: PulseSellRow[];
+  totals: { quoted_value: number; invoiced_value: number; items: number } | null;
+  generated_at: string;
+}
+
+export interface PulseCustomerRow {
+  buyer_id: string;
+  name: string;
+  invoiced_value: number;
+  invoiced_docs: number;
+  quoted_value: number;
+  quoted_docs: number;
+  last_day: string | null;
+}
+
+export interface PulseCustomersResponse {
+  period: { key: PulsePeriodKey; label: string; thin: boolean };
+  window: { from: string; to_excl: string };
+  top: PulseCustomerRow[];
+  summary: {
+    buyers: number;
+    invoicing_buyers: number;
+    repeat_buyers: number;
+    invoiced_value: number;
+    top3_invoiced_value: number;
+    avg_invoice: number | null;
+    median_invoice: number | null;
+  };
+  generated_at: string;
+}
+
+export interface PulseQuoteOutcomes {
+  count: number;
+  converted: number;
+  lost: number;
+  open: number;
+}
+
+export interface PulsePatternsResponse {
+  period: { key: PulsePeriodKey; label: string; thin: boolean };
+  window: { from: string; to_excl: string };
+  /** dow follows ISO: 1 = Monday ... 7 = Sunday. */
+  weekdays: Array<{ dow: number; quotes: number; value: number }>;
+  quote_sizes: { threshold: number; large: PulseQuoteOutcomes; small: PulseQuoteOutcomes };
+  generated_at: string;
+}

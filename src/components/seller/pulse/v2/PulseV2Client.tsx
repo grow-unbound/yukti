@@ -2,12 +2,16 @@
 
 import { Suspense } from 'react';
 
-import { DemandSignalsSection } from '../PulseDashboardClient';
 import { PulseActNow } from './PulseActNow';
+import { DemandSignalsSection } from './PulseDemandSignals';
+import { PulseCustomers } from './PulseCustomers';
 import { PulseFunnel } from './PulseFunnel';
 import { PulseInsights } from './PulseInsights';
 import { PulsePeriodBar } from './PulsePeriodBar';
+import { PulseRhythm } from './PulseRhythm';
 import { PulseScorecard } from './PulseScorecard';
+import { PulseShareMenu } from './PulseShareMenu';
+import { PulseSellThrough } from './PulseSellThrough';
 import { usePulsePeriod } from './usePulsePeriod';
 
 function PulseV2Body() {
@@ -24,14 +28,17 @@ function PulseV2Body() {
           How your customers are using the app, what it is bringing in, and who to follow up with next.
         </p>
       </header>
-      <PulsePeriodBar period={resolved.ok ? resolved.period : null} input={input} error={resolved.ok ? null : resolved.error} onChange={setInput} />
+      <PulsePeriodBar period={resolved.ok ? resolved.period : null} input={input} error={resolved.ok ? null : resolved.error} onChange={setInput} actions={resolved.ok ? <PulseShareMenu query={query} period={resolved.period} /> : null} />
       {resolved.ok ? (
         <div className="space-y-5">
           <PulseInsights query={query} />
           <PulseScorecard query={query} />
           <PulseActNow query={query} />
           <PulseFunnel query={query} />
+          <PulseSellThrough query={query} />
           <DemandSignalsSection />
+          <PulseCustomers query={query} />
+          <PulseRhythm query={query} />
         </div>
       ) : null}
     </div>

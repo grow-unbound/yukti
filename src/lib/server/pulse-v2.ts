@@ -1,8 +1,6 @@
 import type { NextRequest } from 'next/server';
 
-import { FEATURE_FLAGS } from '@/constants';
 import { getVerifiedClaims } from '@/lib/auth';
-import { getFlag } from '@/lib/flags';
 import { resolvePulsePeriod, pulsePeriodInputFromSearch, type PulsePeriod } from '@/lib/pulse/period';
 import { APP_GET_CACHE_CONTROL, jsonWithServerTiming } from '@/lib/server/bounded-get';
 import { canAccessPulse, pulseForbiddenResponse } from '@/lib/server/pulse-access';
@@ -20,7 +18,7 @@ export interface PulseV2Context {
 }
 
 /**
- * Shared front door for the Pulse v2 band routes: verified seller_admin claim, df_pulse_v2 flag, period parsed from
+ * Shared front door for the Pulse v2 band routes: verified seller_admin claim, period parsed from
  * the query string (IST windows, see src/lib/pulse/period.ts). Tenant always comes from the claim, never the client.
  */
 export async function pulseV2Context(
@@ -33,9 +31,6 @@ export async function pulseV2Context(
   const claims = await getVerifiedClaims(request);
   if (!claims.tenant_id) return { ok: false, response: json({ error: 'Unauthorized' }, { status: 401 }) };
   if (!canAccessPulse(claims.role)) return { ok: false, response: pulseForbiddenResponse() };
-  if (!(await getFlag(FEATURE_FLAGS.PULSE_V2, claims.tenant_id))) {
-    return { ok: false, response: json({ error: 'Feature not enabled' }, { status: 403 }) };
-  }
   if (!supabaseAdmin) return { ok: false, response: json({ error: 'Server configuration error' }, { status: 500 }) };
 
   const resolved = resolvePulsePeriod(pulsePeriodInputFromSearch(request.nextUrl.searchParams));

@@ -15,5 +15,9 @@ export function insightText(insight: Insight): string {
       return `${e.n} ${e.direction === 'down' ? 'fewer' : 'more'} ${plural(e.n, 'customer', 'customers')} used the app than in the previous ${e.windowDays ?? ''} days (${e.pct}%).`.replace('  ', ' ');
     case 'pulse.insight.reactivated':
       return `${e.n} ${plural(e.n, 'customer', 'customers')} who had gone quiet ordered again.`;
+    case 'pulse.insight.large_quote_gap':
+      return `Large quotes (${inr(e.value ?? 0)} and above) became invoices ${e.pct}% of the time, against ${e.pctOther}% for smaller ones. ${e.n} large ${plural(e.n, 'quote', 'quotes')} in this period.`;
+    case 'pulse.insight.brand_concentration':
+      return `${e.label} is ${e.pct}% of what was invoiced through the app, across ${e.n} brands.`;
   }
 }

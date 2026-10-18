@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildInsights, INSIGHT_MIN } from '@/lib/pulse/insights';
 import { insightText } from '@/lib/pulse/insight-copy';
-import type { PulseActNowResponse, PulseFunnelResponse, PulseScorecardResponse, PulseWindowMetrics } from '@/types/pulse-v2';
+import type { PulseActNowResponse, PulseFunnelResponse, PulsePatternsResponse, PulseScorecardResponse, PulseSellThroughResponse, PulseWindowMetrics } from '@/types/pulse-v2';
 
 const metrics = (over: Partial<PulseWindowMetrics> = {}): PulseWindowMetrics => ({
   demand_value: 0, demand_docs: 0, demand_buyers: 0,
@@ -72,5 +72,50 @@ describe('pulse insights guards', () => {
 
   it('never emits anything from empty input', () => {
     expect(buildInsights({ scorecard: null, actNow: null, funnel: null })).toEqual([]);
+  });
+});
+
+const P = { key: 'mtd' as const, label: 'This month', thin: false };
+const W = { from: '2026-10-01', to_excl: '2026-10-19' };
+const patterns = (large: [number, number], small: [number, number]): PulsePatternsResponse => ({
+  period: P, window: W, weekdays: [], generated_at: '',
+  quote_sizes: {
+    threshold: 50000,
+    large: { count: large[0], converted: large[1], lost: 0, open: 0 },
+    small: { count: small[0], converted: small[1], lost: 0, open: 0 },
+  },
+});
+const brandsOf = (rows: Array<[string, number]>, items = rows.length, capped = false): PulseSellThroughResponse => ({
+  period: P, window: W, dimension: 'brand', capped, generated_at: '',
+  rows: rows.map(([name, v]) => ({ id: name, name, quoted_value: v, quoted_qty: 1, quoted_docs: 1, invoiced_value: v, invoiced_qty: 1, invoiced_docs: 1 })),
+  totals: { quoted_value: rows.reduce((n, r) => n + r[1], 0), invoiced_value: rows.reduce((n, r) => n + r[1], 0), items },
+});
+
+describe('large_quote_gap', () => {
+  it('fires when large quotes close well below small ones, with enough of both', () => {
+    const [i] = buildInsights({ scorecard: null, actNow: null, funnel: null, patterns: patterns([10, 2], [40, 24]) });
+    expect(i.id).toBe('large_quote_gap');
+    expect(insightText(i)).toContain('20%');
+    expect(insightText(i)).toContain('60%');
+  });
+  it('stays silent on small samples, a narrow gap, or when large quotes do better', () => {
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, patterns: patterns([4, 0], [40, 24]) })).toEqual([]);
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, patterns: patterns([10, 5], [40, 24]) })).toEqual([]);
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, patterns: patterns([10, 8], [40, 24]) })).toEqual([]);
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, patterns: null })).toEqual([]);
+  });
+});
+
+describe('brand_concentration', () => {
+  it('fires when one brand is at least half of invoiced value across three or more brands', () => {
+    const [i] = buildInsights({ scorecard: null, actNow: null, funnel: null, brands: brandsOf([['CP Plus', 58000], ['Seagate', 22000], ['Hikvision', 20000]]) });
+    expect(i.id).toBe('brand_concentration');
+    expect(insightText(i)).toBe('CP Plus is 58% of what was invoiced through the app, across 3 brands.');
+  });
+  it('stays silent below the share, the brand count, the value floor, or when capped', () => {
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, brands: brandsOf([['A', 40000], ['B', 30000], ['C', 30000]]) })).toEqual([]);
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, brands: brandsOf([['A', 90000], ['B', 10000]]) })).toEqual([]);
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, brands: brandsOf([['A', 900], ['B', 50], ['C', 50]]) })).toEqual([]);
+    expect(buildInsights({ scorecard: null, actNow: null, funnel: null, brands: brandsOf([['A', 90000], ['B', 5000], ['C', 5000]], 3, true) })).toEqual([]);
   });
 });

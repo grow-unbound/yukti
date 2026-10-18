@@ -1,6 +1,8 @@
 import { PulseActNowSkeleton } from './PulseActNow';
+import { PulseCustomersSkeleton } from './PulseCustomers';
 import { PulseFunnelSkeleton } from './PulseFunnel';
 import { PulseScorecardSkeleton } from './PulseScorecard';
+import { PulseSellThroughSkeleton } from './PulseSellThrough';
 
 function SectionHead({ titleWidth, subWidth }: { titleWidth: string; subWidth: string }) {
   return (
@@ -11,7 +13,7 @@ function SectionHead({ titleWidth, subWidth }: { titleWidth: string; subWidth: s
   );
 }
 
-/** Mirrors PulseV2Client: header, period bar, then the scorecard / act-now / funnel bands. */
+/** Mirrors PulseV2Client: header, period bar, then the scorecard, act-now, funnel, what-sells and customers bands. */
 export function PulseV2Skeleton() {
   return (
     <div className="mx-auto w-full max-w-[1920px] px-8 py-6">
@@ -30,6 +32,8 @@ export function PulseV2Skeleton() {
         <section><SectionHead titleWidth="w-56" subWidth="w-[34rem]" /><PulseScorecardSkeleton /></section>
         <section><SectionHead titleWidth="w-32" subWidth="w-[38rem]" /><PulseActNowSkeleton /></section>
         <section><SectionHead titleWidth="w-60" subWidth="w-[36rem]" /><PulseFunnelSkeleton /></section>
+        <section><SectionHead titleWidth="w-44" subWidth="w-[36rem]" /><PulseSellThroughSkeleton /></section>
+        <section><SectionHead titleWidth="w-36" subWidth="w-[36rem]" /><PulseCustomersSkeleton /></section>
       </div>
     </div>
   );

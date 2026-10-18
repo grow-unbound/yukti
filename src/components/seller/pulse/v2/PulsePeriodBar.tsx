@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CalendarRange } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -25,11 +25,13 @@ export function PulsePeriodBar({
   input,
   error,
   onChange,
+  actions,
 }: {
   period: PulsePeriod | null;
   input: PulsePeriodInput;
   error?: string | null;
   onChange: (next: PulsePeriodInput) => void;
+  actions?: ReactNode;
 }) {
   const [customOpen, setCustomOpen] = useState(input.period === 'custom');
   const [from, setFrom] = useState(input.from ?? '');
@@ -73,6 +75,7 @@ export function PulsePeriodBar({
           />
           Compare
         </label>
+        {actions}
       </div>
 
       {customOpen ? (

@@ -1,25 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
 import { ArrowRight, Lightbulb } from 'lucide-react';
 
-import { usePulseActNow, usePulseFunnel, usePulseScorecard } from '@/hooks/usePulseV2';
 import { insightText } from '@/lib/pulse/insight-copy';
-import { buildInsights } from '@/lib/pulse/insights';
+
+import { usePulseInsights } from './usePulseInsights';
 
 const ACTION_LABELS: Record<string, string> = {
   'pulse.action.open_inbox': 'Open Inbox',
   'pulse.action.see_customers': 'See customers',
   'pulse.action.see_funnel': 'See the breakdown',
+  'pulse.action.see_sales': 'See what sells',
 };
 
 /** Rules-based read-outs fed by the same data as the bands below (React Query dedupes the requests). */
 export function PulseInsights({ query }: { query: string }) {
-  const scorecard = usePulseScorecard(query).data ?? null;
-  const actNow = usePulseActNow(query).data ?? null;
-  const funnel = usePulseFunnel(query).data ?? null;
-  const insights = useMemo(() => buildInsights({ scorecard, actNow, funnel }), [scorecard, actNow, funnel]);
+  const { insights } = usePulseInsights(query);
   if (insights.length === 0) return null;
 
   return (
