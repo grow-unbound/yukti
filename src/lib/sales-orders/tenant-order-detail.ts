@@ -1,4 +1,5 @@
 import type { EstimateComposerLineRow } from '@/components/seller/document-composer/LinesTable';
+import { computeDisplayDocumentTotals, computeLineTaxableAmount, roundMoney } from '@/lib/gst';
 import type { SalesOrderActivityRow, SalesOrderDetail, SalesOrderUiStatus } from '@/types/tenant-sales-orders';
 
 export interface SalesOrderStepperTimestamps {
@@ -283,9 +284,32 @@ export function mapSalesOrderDetailToComposerLines(detail: SalesOrderDetail): Es
     base_selling_price: line.unit_price,
     disc_pct: line.disc_pct,
     tax_pct: line.tax_pct ?? line.tax_rate ?? 0,
-    line_total: line.line_total,
+    // Price captured on the order line; stored line_total can be ex-GST after the Zoho sync-back.
+    line_total: roundMoney(computeLineTaxableAmount({ qty: line.qty, unit_price: line.unit_price, disc_pct: line.disc_pct })),
     scheme_tag: line.scheme_tag ?? null,
     diff: 'clean',
     default_uom: line.unit,
   }));
+}
+
+/** Header totals derived from line unit prices; tax is 0 for GST-inclusive tenants, else the stored tax. */
+export function deriveSalesOrderDisplayTotals(detail: SalesOrderDetail, gstInclusive: boolean) {
+  const discountFlat = detail.discount_flat ?? 0;
+  const freight = detail.freight ?? 0;
+  const roundOff = detail.round_off ?? 0;
+  const display = computeDisplayDocumentTotals(
+    detail.lines.map((line) => ({ qty: line.qty, unit_price: line.unit_price, disc_pct: line.disc_pct })),
+    { gstInclusive, taxAmount: detail.tax_amount, discount_flat: discountFlat, freight, round_off: roundOff },
+  );
+  return {
+    subtotal: display.subtotal,
+    discount_flat: discountFlat,
+    freight,
+    taxable_amount: Math.max(display.subtotal - discountFlat, 0),
+    tax_amount: display.tax_amount,
+    grand_total: display.grand_total,
+    round_off: roundOff,
+    total_units: detail.lines.reduce((sum, line) => sum + line.qty, 0),
+    gst_inclusive: gstInclusive,
+  };
 }

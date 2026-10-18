@@ -24,7 +24,7 @@ import { BuyerFixedFooter } from '@/components/buyer/layout/BuyerFixedFooter';
 import { BUYER_CARD_RADIUS_CLASS } from '@/lib/buyer-ui';
 import { useCart, type BuyerCartItem } from '@/contexts/BuyerCartContext';
 import { useBuyerMe } from '@/hooks/useBuyerMe';
-import { roundMoney } from '@/lib/gst';
+import { computeDisplayDocumentTotals, computeLineTaxableAmount, roundMoney } from '@/lib/gst';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,8 @@ export interface TransactionLineItem {
   unit_price: number | null;
   tax_rate: number | null;
   line_total: number | null;
+  /** Line discount %; invoices/orders can carry one (buyer estimate lines never do). */
+  disc_pct?: number | null;
   buyer_target_unit_price_min?: number | null;
   buyer_target_unit_price_max?: number | null;
 }
@@ -64,6 +66,10 @@ export interface TransactionDoc {
   /** Extra amount shown below total (e.g. outstanding balance on invoices) */
   outstandingBalance?: number | null;
   placeOfSupply: string | null;
+  /** Header-level adjustments (invoices) folded into the derived total. */
+  discount_flat?: number | null;
+  freight?: number | null;
+  round_off?: number | null;
   items: TransactionLineItem[];
   /** Campaign whose price was applied to the lines (estimates) — same price the buyer saw on cards and cart. */
   campaignName?: string | null;
@@ -180,6 +186,8 @@ function TotalsBlock({
   gstInclusive,
   gstRate,
   respectBusinessPolicyTotals,
+  derivedTotals,
+  adjustments,
 }: {
   subtotal: number;
   tax_total: number;
@@ -188,13 +196,19 @@ function TotalsBlock({
   gstInclusive: boolean;
   gstRate: number;
   respectBusinessPolicyTotals: boolean;
+  derivedTotals?: { subtotal: number; tax_amount: number; grand_total: number } | null;
+  adjustments?: { discount_flat?: number | null; freight?: number | null; round_off?: number | null } | null;
 }) {
-  const displayTax = respectBusinessPolicyTotals
+  const displayTax = derivedTotals
+    ? derivedTotals.tax_amount
+    : respectBusinessPolicyTotals
     ? (gstInclusive ? 0 : roundMoney(subtotal * (gstRate / 100)))
     : tax_total;
-  const displayTotal = respectBusinessPolicyTotals
-    ? roundMoney(subtotal + displayTax)
-    : total_amount;
+  const displayTotal = derivedTotals
+    ? derivedTotals.grand_total
+    : respectBusinessPolicyTotals
+      ? roundMoney(subtotal + displayTax)
+      : total_amount;
 
   return (
     <div
@@ -210,9 +224,27 @@ function TotalsBlock({
         <span className="font-mono">
           {gstInclusive
             ? 'Included in Prices'
-            : `${formatNumberValue(displayTax, 'CURRENCY_EXACT')}${respectBusinessPolicyTotals ? ` (${gstRate}%)` : ''}`}
+            : `${formatNumberValue(displayTax, 'CURRENCY_EXACT')}${respectBusinessPolicyTotals && !derivedTotals ? ` (${gstRate}%)` : ''}`}
         </span>
       </div>
+      {(adjustments?.discount_flat ?? 0) !== 0 ? (
+        <div className="mt-2 flex justify-between text-[var(--b-text-body)] text-[var(--cream-600)]">
+          <span>Discount</span>
+          <span className="font-mono">-{formatNumberValue(adjustments?.discount_flat ?? 0, 'CURRENCY_EXACT')}</span>
+        </div>
+      ) : null}
+      {(adjustments?.freight ?? 0) !== 0 ? (
+        <div className="mt-2 flex justify-between text-[var(--b-text-body)] text-[var(--cream-600)]">
+          <span>Freight</span>
+          <span className="font-mono">{formatNumberValue(adjustments?.freight ?? 0, 'CURRENCY_EXACT')}</span>
+        </div>
+      ) : null}
+      {(adjustments?.round_off ?? 0) !== 0 ? (
+        <div className="mt-2 flex justify-between text-[var(--b-text-body)] text-[var(--cream-600)]">
+          <span>Round off</span>
+          <span className="font-mono">{formatNumberValue(adjustments?.round_off ?? 0, 'CURRENCY_EXACT')}</span>
+        </div>
+      ) : null}
       <div className="mt-3 flex justify-between border-t border-[var(--border-1)] pt-3">
         <span className="font-semibold text-[var(--cream-900)]">Total</span>
         <span className="font-mono text-lg font-bold text-[var(--cream-900)]">{formatNumberValue(displayTotal, 'CURRENCY_EXACT')}</span>
@@ -246,18 +278,32 @@ export function TransactionDetailDocumentBody({
   const totalUnits = doc.items.reduce((sum, item) => sum + item.qty, 0);
   const deliveryPlace = doc.placeOfSupply?.trim() ?? '';
   const pricePending = docType === 'estimate' && doc.items.some((item) => item.unit_price == null);
-  // Estimates: stored line_total/subtotal can be ex-GST after a Zoho sync-back, so lines are
-  // qty x unit_price (the resolved price the buyer saw; buyer lines carry no line discount) and the
-  // subtotal is their sum. Partially-priced estimates hide totals via `pricePending`.
-  const showResolvedPrices = respectBusinessPolicyTotals && docType === 'estimate';
+  // Estimates, invoices and orders: stored line_total/subtotal can be ex-GST after a Zoho sync-back, so lines are
+  // qty x unit_price (less any line discount) as captured at submission and the subtotal is their sum.
+  // Partially-priced estimates hide totals via `pricePending`.
+  const showResolvedPrices = respectBusinessPolicyTotals;
   const displayItems = showResolvedPrices
     ? doc.items.map((item) => (
-        item.unit_price == null ? item : { ...item, line_total: roundMoney(item.qty * item.unit_price) }
+        item.unit_price == null
+          ? item
+          : {
+              ...item,
+              line_total: roundMoney(
+                computeLineTaxableAmount({ qty: item.qty, unit_price: item.unit_price, disc_pct: item.disc_pct ?? 0 }),
+              ),
+            }
       ))
     : doc.items;
   const displaySubtotal = showResolvedPrices
     ? roundMoney(displayItems.reduce((sum, item) => sum + (item.line_total ?? 0), 0))
     : doc.subtotal;
+  // Invoices and orders keep the backend tax (per-line rates) when exclusive; estimates derive it from the policy rate.
+  const derivedTotals = showResolvedPrices && docType !== 'estimate'
+    ? computeDisplayDocumentTotals(
+        displayItems.map((item) => ({ qty: item.qty, unit_price: item.unit_price ?? 0, disc_pct: item.disc_pct ?? 0 })),
+        { gstInclusive, taxAmount: doc.tax_total, discount_flat: doc.discount_flat, freight: doc.freight, round_off: doc.round_off },
+      )
+    : null;
 
   return (
     <div className="flex flex-col space-y-3">
@@ -318,6 +364,10 @@ export function TransactionDetailDocumentBody({
         gstInclusive={gstInclusive}
         gstRate={gstRate}
         respectBusinessPolicyTotals={respectBusinessPolicyTotals}
+        derivedTotals={derivedTotals}
+        adjustments={showResolvedPrices && docType !== 'estimate'
+          ? { discount_flat: doc.discount_flat, freight: doc.freight, round_off: doc.round_off }
+          : null}
       />
       )}
 

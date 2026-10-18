@@ -61,6 +61,19 @@ describe('parseBuyerCatalogContext', () => {
     expect(ctx.buyer).toEqual({ defaultCohortId: 'co-default', geography: { state: 'KA' }, explicitCohortIds: ['co-1'] });
   });
 
+  it('accepts explicit JSON nulls inside buyer geography (prod buyers store {"city": null})', () => {
+    const ctx = parseBuyerCatalogContext(
+      raw({
+        buyer: {
+          default_cohort_id: null,
+          geography: { city: null, state: 'Telangana', zone: null, pincode: null },
+          explicit_cohort_ids: [],
+        },
+      }),
+    );
+    expect(ctx.buyer?.geography).toMatchObject({ state: 'Telangana', city: undefined, zone: undefined });
+  });
+
   it('allows a missing buyer and rejects malformed payloads', () => {
     expect(parseBuyerCatalogContext(raw({ buyer: null })).buyer).toBeNull();
     expect(() => parseBuyerCatalogContext({ campaigns: 'x' })).toThrow();

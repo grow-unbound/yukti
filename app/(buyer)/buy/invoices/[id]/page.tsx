@@ -17,6 +17,9 @@ function pickDoc(payload: any): TransactionDoc | null {
     subtotal: inv.subtotal,
     tax_total: inv.tax_total,
     total_amount: inv.total_amount,
+    discount_flat: inv.discount_flat ?? 0,
+    freight: inv.freight ?? 0,
+    round_off: inv.round_off ?? 0,
     outstandingBalance: inv.outstanding_balance,
     items: inv.items ?? [],
   };
@@ -31,6 +34,7 @@ export default function BuyerInvoiceDetailPage({ params }: { params: Promise<{ i
       endpoint={`/api/buyer/invoices/${id}`}
       docType="invoice"
       backFallbackHref="/buy/orders?tab=invoices"
+      respectBusinessPolicyTotals
       pickDoc={pickDoc}
     />
   );

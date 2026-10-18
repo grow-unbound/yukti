@@ -15,6 +15,7 @@ export interface BuyerInvoiceItem {
   unit_price: number;
   tax_rate: number | null;
   line_total: number;
+  disc_pct: number | null;
 }
 
 export interface BuyerInvoiceDetail {
@@ -28,6 +29,9 @@ export interface BuyerInvoiceDetail {
   outstanding_balance: number | null;
   subtotal: number;
   tax_total: number;
+  discount_flat: number;
+  freight: number;
+  round_off: number;
   items: BuyerInvoiceItem[];
 }
 
@@ -56,7 +60,7 @@ export async function GET(
     const { data: invoice, error } = await (db as any)
       .schema('app')
       .from('invoices')
-      .select('id, invoice_number, status, invoice_date, due_date, place_of_supply, total_amount, outstanding_balance, subtotal, tax_amount')
+      .select('id, invoice_number, status, invoice_date, due_date, place_of_supply, total_amount, outstanding_balance, subtotal, tax_amount, discount_flat, freight, round_off')
       .eq('id', id)
       .eq('tenant_id', tenant_id)
       .eq('buyer_id', buyer_id)
@@ -87,6 +91,9 @@ export async function GET(
       outstanding_balance: invoice.outstanding_balance != null ? Number(invoice.outstanding_balance) : null,
       subtotal,
       tax_total,
+      discount_flat: Number(invoice.discount_flat ?? 0),
+      freight: Number(invoice.freight ?? 0),
+      round_off: Number(invoice.round_off ?? 0),
       items,
     };
 

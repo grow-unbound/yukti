@@ -196,6 +196,118 @@ describe('buyer transaction detail page GST presentation', () => {
     expect(screen.queryByText('₹2,669.50')).not.toBeInTheDocument();
   });
 
+  it('derives invoice lines as qty x unit_price and shows GST included for inclusive tenants', async () => {
+    useBuyerMeMock.mockReturnValue({
+      data: { tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: true, gst_rate: 18 } },
+    });
+    apiFetchMock.mockResolvedValue({
+      json: async () => ({
+        invoice: {
+          invoice_number: 'INV-1', status: 'sent', invoice_date: '2026-10-01T00:00:00.000Z', due_date: null,
+          place_of_supply: null, subtotal: 186.44, tax_total: 33.56, total_amount: 220,
+          outstanding_balance: null, discount_flat: 0, freight: 0, round_off: 0,
+          items: [{ tenant_product_id: 'p1', product_name: 'P1', internal_sku: null, unit: 'pcs', image_url: null, qty: 1, unit_price: 40, tax_rate: 18, line_total: 33.9, disc_pct: 0 },{ tenant_product_id: 'p2', product_name: 'P2', internal_sku: null, unit: 'pcs', image_url: null, qty: 3, unit_price: 60, tax_rate: 18, line_total: 152.54, disc_pct: 0 }],
+        },
+      }),
+    });
+    const { TransactionDetailPage } = await import('@/components/buyer/documents/TransactionDetailPage');
+    render(
+      <TransactionDetailPage
+        id="inv-1" title="Invoice" endpoint="/api/buyer/invoices/inv-1" docType="invoice" respectBusinessPolicyTotals
+        pickDoc={(payload) => {
+          const i = payload.invoice;
+          return i ? {
+            docNumber: i.invoice_number, status: i.status, primaryDate: i.invoice_date, secondaryDate: null, notes: null,
+            subtotal: i.subtotal, tax_total: i.tax_total, total_amount: i.total_amount, placeOfSupply: null,
+            discount_flat: i.discount_flat, freight: i.freight, round_off: i.round_off, items: i.items,
+          } : null;
+        }}
+      />,
+    );
+    await waitFor(() => { expect(screen.getByText('INV-1')).toBeInTheDocument(); });
+    expect(screen.getByText('Included in Prices')).toBeInTheDocument();
+    expect(screen.getByText('₹40')).toBeInTheDocument();
+    expect(screen.getByText('₹180')).toBeInTheDocument();
+    expect(screen.queryByText('₹33.90')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹152.54')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹186.44')).not.toBeInTheDocument();
+  });
+
+  it('uses line discount and backend tax for exclusive-tax invoices', async () => {
+    useBuyerMeMock.mockReturnValue({
+      data: { tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: false, gst_rate: 18 } },
+    });
+    apiFetchMock.mockResolvedValue({
+      json: async () => ({
+        invoice: {
+          invoice_number: 'INV-1', status: 'sent', invoice_date: '2026-10-01T00:00:00.000Z', due_date: null,
+          place_of_supply: null, subtotal: 186.44, tax_total: 162, total_amount: 1062,
+          outstanding_balance: null, discount_flat: 0, freight: 50, round_off: 0,
+          items: [{ tenant_product_id: 'p1', product_name: 'P1', internal_sku: null, unit: 'pcs', image_url: null, qty: 10, unit_price: 100, tax_rate: 18, line_total: 1180, disc_pct: 10 }],
+        },
+      }),
+    });
+    const { TransactionDetailPage } = await import('@/components/buyer/documents/TransactionDetailPage');
+    render(
+      <TransactionDetailPage
+        id="inv-1" title="Invoice" endpoint="/api/buyer/invoices/inv-1" docType="invoice" respectBusinessPolicyTotals
+        pickDoc={(payload) => {
+          const i = payload.invoice;
+          return i ? {
+            docNumber: i.invoice_number, status: i.status, primaryDate: i.invoice_date, secondaryDate: null, notes: null,
+            subtotal: i.subtotal, tax_total: i.tax_total, total_amount: i.total_amount, placeOfSupply: null,
+            discount_flat: i.discount_flat, freight: i.freight, round_off: i.round_off, items: i.items,
+          } : null;
+        }}
+      />,
+    );
+    await waitFor(() => { expect(screen.getByText('INV-1')).toBeInTheDocument(); });
+    expect(screen.getAllByText('₹900').length).toBeGreaterThan(0);
+    expect(screen.getByText('₹162')).toBeInTheDocument();
+    expect(screen.getByText('Freight')).toBeInTheDocument();
+    expect(screen.getByText('₹1,112')).toBeInTheDocument();
+    expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
+  });
+
+  it('uses line discount and backend tax for exclusive-tax orders', async () => {
+    useBuyerMeMock.mockReturnValue({
+      data: { tenant: { name: 'Acme Traders' },
+        business_policy: { gst_inclusive: false, gst_rate: 18 } },
+    });
+    apiFetchMock.mockResolvedValue({
+      json: async () => ({
+        order: {
+          order_number: 'SO-1', status: 'confirmed', placed_at: '2026-10-01T00:00:00.000Z', notes: null,
+          place_of_supply: null, subtotal: 186.44, tax_total: 162, total_amount: 1062,
+          discount_flat: 0, freight: 50, round_off: 0,
+          items: [{ tenant_product_id: 'p1', product_name: 'P1', internal_sku: null, unit: 'pcs', image_url: null, qty: 10, unit_price: 100, tax_rate: 18, line_total: 1180, disc_pct: 10 }],
+        },
+      }),
+    });
+    const { TransactionDetailPage } = await import('@/components/buyer/documents/TransactionDetailPage');
+    render(
+      <TransactionDetailPage
+        id="o-1" title="Order" endpoint="/api/buyer/orders/o-1" docType="order" respectBusinessPolicyTotals
+        pickDoc={(payload) => {
+          const i = payload.order;
+          return i ? {
+            docNumber: i.order_number, status: i.status, primaryDate: i.placed_at, secondaryDate: null, notes: null,
+            subtotal: i.subtotal, tax_total: i.tax_total, total_amount: i.total_amount, placeOfSupply: null,
+            discount_flat: i.discount_flat, freight: i.freight, round_off: i.round_off, items: i.items,
+          } : null;
+        }}
+      />,
+    );
+    await waitFor(() => { expect(screen.getByText('SO-1')).toBeInTheDocument(); });
+    expect(screen.getAllByText('₹900').length).toBeGreaterThan(0);
+    expect(screen.getByText('₹162')).toBeInTheDocument();
+    expect(screen.getByText('Freight')).toBeInTheDocument();
+    expect(screen.getByText('₹1,112')).toBeInTheDocument();
+    expect(screen.queryByText('₹1,180')).not.toBeInTheDocument();
+  });
+
   it('sets the tab title to the document number once the payload resolves', async () => {
     document.title = 'Order';
     useBuyerMeMock.mockReturnValue({

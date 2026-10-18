@@ -28,6 +28,9 @@ export interface BuyerOrderDetail {
   total_amount: number;
   subtotal: number;
   tax_total: number;
+  discount_flat: number;
+  freight: number;
+  round_off: number;
   document_url: string | null;
   items: BuyerOrderItem[];
 }
@@ -67,7 +70,7 @@ export async function GET(
     const { data: order, error } = await (db as any)
       .schema('app')
       .from('orders')
-      .select('id, order_number, status, notes, placed_at, place_of_supply, total_amount, subtotal, tax_amount, order_url')
+      .select('id, order_number, status, notes, placed_at, place_of_supply, total_amount, subtotal, tax_amount, discount_flat, freight, round_off, order_url')
       .eq('id', id)
       .eq('tenant_id', tenant_id)
       .eq('buyer_id', buyer_id)
@@ -98,6 +101,9 @@ export async function GET(
       total_amount: Number(order.total_amount),
       subtotal,
       tax_total: Math.max(0, tax_total),
+      discount_flat: Number(order.discount_flat ?? 0),
+      freight: Number(order.freight ?? 0),
+      round_off: Number(order.round_off ?? 0),
       document_url: (order as { order_url?: string | null }).order_url ?? null,
       items,
     };

@@ -11,9 +11,10 @@ import {
 } from '@/components/seller/document-composer';
 import { SellerMobileTransactionDetail } from '@/components/seller/mobile';
 import { TransactionOriginMark } from '@/components/seller/transactional/TransactionOriginMark';
+import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
 import { useSalesOrderDetail } from '@/hooks/useSalesOrderDetail';
 import { defaultPaymentTerms } from '@/lib/documents/composer-math';
-import { mapSalesOrderDetailToComposerLines } from '@/lib/sales-orders/tenant-order-detail';
+import { deriveSalesOrderDisplayTotals, mapSalesOrderDetailToComposerLines } from '@/lib/sales-orders/tenant-order-detail';
 import { formatNumberValue } from '@/lib/utils';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
 import type { SalesOrderDetail, SalesOrderUiStatus } from '@/types/tenant-sales-orders';
@@ -52,27 +53,9 @@ function statusTone(ui: SalesOrderUiStatus) {
   return 'info' as const;
 }
 
-function orderTotals(data: SalesOrderDetail) {
-  const subtotal = data.subtotal ?? 0;
-  const discountFlat = data.discount_flat ?? 0;
-  const freight = data.freight ?? 0;
-  const roundOff = data.round_off ?? 0;
-  return {
-    subtotal,
-    discount_flat: discountFlat,
-    freight,
-    taxable_amount: Math.max(subtotal - discountFlat, 0),
-    tax_amount: data.tax_amount ?? 0,
-    grand_total: data.total_amount ?? 0,
-    round_off: roundOff,
-    total_units: data.lines.reduce((sum, line) => sum + line.qty, 0),
-    gst_inclusive: (data.tax_amount ?? 0) === 0,
-  };
-}
-
-function OrderDetailBody({ data, lines }: { data: SalesOrderDetail; lines: EstimateComposerLineRow[] }) {
+function OrderDetailBody({ data, lines, gstInclusive }: { data: SalesOrderDetail; lines: EstimateComposerLineRow[]; gstInclusive: boolean }) {
   const buyer = data.buyer_context;
-  const totals = orderTotals(data);
+  const totals = deriveSalesOrderDisplayTotals(data, gstInclusive);
   const paymentTermsLabel = buyer ? defaultPaymentTerms(buyer.payment_terms_days) : 'Due on receipt';
   const overLimitBy = buyer ? totals.grand_total - buyer.credit_available : 0;
   const creditWarning = buyer && overLimitBy > 0 ? `Over limit by ${formatNumberValue(overLimitBy, 'CURRENCY_EXACT')}.` : null;
@@ -129,15 +112,15 @@ function OrderDetailBody({ data, lines }: { data: SalesOrderDetail; lines: Estim
         creditWarning={creditWarning}
         isInterState={isInterState}
         lineCount={lines.length}
-        gstInclusiveOverride={data.tax_amount === 0}
+        gstInclusiveOverride={totals.gst_inclusive}
       />
     </div>
   );
 }
 
-function OrderMobileBody({ data }: { data: SalesOrderDetail }) {
+function OrderMobileBody({ data, lines, gstInclusive }: { data: SalesOrderDetail; lines: EstimateComposerLineRow[]; gstInclusive: boolean }) {
   const buyer = data.buyer_context;
-  const totals = orderTotals(data);
+  const totals = deriveSalesOrderDisplayTotals(data, gstInclusive);
 
   return (
     <SellerMobileTransactionDetail
@@ -160,12 +143,12 @@ function OrderMobileBody({ data }: { data: SalesOrderDetail }) {
       locationName={data.location_name}
       placeOfSupply={data.place_of_supply ?? buyer?.place_of_supply}
       notes={data.seller_note ?? data.notes}
-      lines={data.lines.map((line) => ({
+      lines={lines.map((line) => ({
         id: line.id,
-        name: line.name,
+        name: line.product_name,
         sku: line.sku,
         qty: line.qty,
-        unit: line.unit,
+        unit: data.lines.find((orderLine) => orderLine.id === line.id)?.unit,
         unitPrice: line.unit_price,
         lineTotal: line.line_total,
       }))}
@@ -173,7 +156,7 @@ function OrderMobileBody({ data }: { data: SalesOrderDetail }) {
         { label: 'Subtotal', value: totals.subtotal },
         ...(totals.discount_flat ? [{ label: 'Discount', value: `-${formatNumberValue(totals.discount_flat, 'CURRENCY_EXACT')}`, tone: 'muted' as const }] : []),
         ...(totals.freight ? [{ label: 'Freight', value: totals.freight }] : []),
-        { label: 'GST', value: totals.tax_amount },
+        { label: 'GST', value: totals.gst_inclusive ? 'Included in prices' : totals.tax_amount },
         { label: 'Total', value: totals.grand_total, emphasis: true },
       ]}
     />
@@ -194,12 +177,13 @@ export function InboxOrderPanel({ entry }: { entry: InboxEntry }) {
   const orderId = entry.source_entity_type === 'order' ? entry.source_entity_id : null;
   const { data, isLoading, isError, error } = useSalesOrderDetail(orderId ?? undefined);
 
+  const { gstInclusive, policyLoading } = useBusinessPolicy();
   const lines = useMemo(() => (data ? mapSalesOrderDetailToComposerLines(data) : []), [data]);
 
   if (!orderId) {
     return <p className="text-base text-cream-600">No order is linked to this Inbox entry.</p>;
   }
-  if (isLoading) return <InboxOrderSkeleton />;
+  if (isLoading || policyLoading) return <InboxOrderSkeleton />;
   if (isError || !data) {
     return (
       <ErrorState
@@ -211,8 +195,8 @@ export function InboxOrderPanel({ entry }: { entry: InboxEntry }) {
 
   return (
     <>
-      <OrderMobileBody data={data} />
-      <OrderDetailBody data={data} lines={lines} />
+      <OrderMobileBody data={data} lines={lines} gstInclusive={gstInclusive} />
+      <OrderDetailBody data={data} lines={lines} gstInclusive={gstInclusive} />
     </>
   );
 }

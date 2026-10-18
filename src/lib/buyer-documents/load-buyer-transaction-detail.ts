@@ -15,6 +15,7 @@ export interface BuyerDocumentLineItem {
   unit_price: number | null;
   tax_rate: number | null;
   line_total: number | null;
+  disc_pct: number | null;
   buyer_target_unit_price_min?: number | null;
   buyer_target_unit_price_max?: number | null;
 }
@@ -25,6 +26,7 @@ interface RawDocumentLineItem {
   unit_price: number | string | null;
   tax_rate: number | string | null;
   line_total: number | string | null;
+  disc_pct?: number | string | null;
   buyer_target_unit_price_min?: number | string | null;
   buyer_target_unit_price_max?: number | string | null;
   deleted_at?: string | null;
@@ -63,8 +65,8 @@ export async function loadBuyerDocumentLineItems(
   // selecting them from order_items/invoice_items fails with "column does not exist".
   const itemColumns =
     parentTable === 'estimates'
-      ? 'tenant_product_id, qty, unit_price, tax_rate, line_total, buyer_target_unit_price_min, buyer_target_unit_price_max, deleted_at'
-      : 'tenant_product_id, qty, unit_price, tax_rate, line_total, deleted_at';
+      ? 'tenant_product_id, qty, unit_price, tax_rate, line_total, disc_pct, buyer_target_unit_price_min, buyer_target_unit_price_max, deleted_at'
+      : 'tenant_product_id, qty, unit_price, tax_rate, line_total, disc_pct, deleted_at';
 
   const { data: itemRows, error: itemError } = await d
     .schema('app')
@@ -135,6 +137,7 @@ export async function loadBuyerDocumentLineItems(
       unit_price: row.unit_price == null ? null : Number(row.unit_price),
       tax_rate: row.tax_rate != null ? Number(row.tax_rate) : null,
       line_total: row.line_total == null ? null : Number(row.line_total),
+      disc_pct: row.disc_pct == null ? null : Number(row.disc_pct),
       buyer_target_unit_price_min: row.buyer_target_unit_price_min == null ? null : Number(row.buyer_target_unit_price_min),
       buyer_target_unit_price_max: row.buyer_target_unit_price_max == null ? null : Number(row.buyer_target_unit_price_max),
     };
