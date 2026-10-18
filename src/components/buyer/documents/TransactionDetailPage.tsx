@@ -278,10 +278,10 @@ export function TransactionDetailDocumentBody({
   const totalUnits = doc.items.reduce((sum, item) => sum + item.qty, 0);
   const deliveryPlace = doc.placeOfSupply?.trim() ?? '';
   const pricePending = docType === 'estimate' && doc.items.some((item) => item.unit_price == null);
-  // Estimates and invoices: stored line_total/subtotal can be ex-GST after a Zoho sync-back, so lines are
+  // Estimates, invoices and orders: stored line_total/subtotal can be ex-GST after a Zoho sync-back, so lines are
   // qty x unit_price (less any line discount) as captured at submission and the subtotal is their sum.
   // Partially-priced estimates hide totals via `pricePending`.
-  const showResolvedPrices = respectBusinessPolicyTotals && (docType === 'estimate' || docType === 'invoice');
+  const showResolvedPrices = respectBusinessPolicyTotals;
   const displayItems = showResolvedPrices
     ? doc.items.map((item) => (
         item.unit_price == null
@@ -297,8 +297,8 @@ export function TransactionDetailDocumentBody({
   const displaySubtotal = showResolvedPrices
     ? roundMoney(displayItems.reduce((sum, item) => sum + (item.line_total ?? 0), 0))
     : doc.subtotal;
-  // Invoices keep the backend tax (per-line rates) when exclusive; estimates derive it from the policy rate.
-  const derivedTotals = showResolvedPrices && docType === 'invoice'
+  // Invoices and orders keep the backend tax (per-line rates) when exclusive; estimates derive it from the policy rate.
+  const derivedTotals = showResolvedPrices && docType !== 'estimate'
     ? computeDisplayDocumentTotals(
         displayItems.map((item) => ({ qty: item.qty, unit_price: item.unit_price ?? 0, disc_pct: item.disc_pct ?? 0 })),
         { gstInclusive, taxAmount: doc.tax_total, discount_flat: doc.discount_flat, freight: doc.freight, round_off: doc.round_off },
@@ -365,7 +365,7 @@ export function TransactionDetailDocumentBody({
         gstRate={gstRate}
         respectBusinessPolicyTotals={respectBusinessPolicyTotals}
         derivedTotals={derivedTotals}
-        adjustments={showResolvedPrices && docType === 'invoice'
+        adjustments={showResolvedPrices && docType !== 'estimate'
           ? { discount_flat: doc.discount_flat, freight: doc.freight, round_off: doc.round_off }
           : null}
       />

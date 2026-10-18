@@ -651,6 +651,9 @@ function OrdersPageInner() {
             subtotal: order.subtotal,
             tax_total: order.tax_total,
             total_amount: order.total_amount,
+            discount_flat: order.discount_flat ?? 0,
+            freight: order.freight ?? 0,
+            round_off: order.round_off ?? 0,
             items: order.items ?? [],
           };
         },

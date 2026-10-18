@@ -16,6 +16,9 @@ function pickDoc(payload: any): TransactionDoc | null {
     subtotal: o.subtotal,
     tax_total: o.tax_total,
     total_amount: o.total_amount,
+    discount_flat: o.discount_flat ?? 0,
+    freight: o.freight ?? 0,
+    round_off: o.round_off ?? 0,
     items: o.items ?? [],
   };
 }
