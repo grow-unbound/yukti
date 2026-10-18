@@ -3,7 +3,6 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { getVerifiedClaims } from '@/lib/auth';
 import { getFlag } from '@/lib/flags';
 import { SELLER_CACHE_PERSONAL } from '@/lib/server/bounded-get';
-import { getSellerLandingPeriodMeta } from '@/lib/server/seller-period';
 
 type DbClient = NonNullable<typeof supabaseAdmin>;
 
@@ -86,16 +85,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
-    const quarterMeta = getSellerLandingPeriodMeta('quarter');
-    const currentQuarterStart = quarterMeta.current_start.slice(0, 10);
-    const previousQuarterStart = quarterMeta.previous_start.slice(0, 10);
-
     const [
       buyerUsersRes,
       cohortMembersRes,
       buyerPriceListAssignmentRes,
-      buyerNowSummaryRes,
-      buyerPeriodSummaryRes,
+      snapshotRes,
       lastInvoiceRes,
       lastEstimateRes,
       lastOrderRes,
@@ -124,25 +118,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      db
-        .schema('app')
-        .from('metrics_buyer_now_summary')
-        .select('receivable_amount, receivable_invoice_count, overdue_amount, overdue_invoice_count, credit_limit, credit_available')
-        .eq('buyer_id', id)
-        .eq('tenant_id', tenantId)
-        .is('deleted_at', null)
-        .maybeSingle(),
-      db
-        .schema('app')
-        .from('metrics_buyer_period_summary')
-        .select(
-          'period_start, invoice_value, invoice_count, estimate_value, estimate_count, order_value, order_count, app_demand_value, app_demand_count, primary_demand_count, primary_demand_value',
-        )
-        .eq('buyer_id', id)
-        .eq('tenant_id', tenantId)
-        .eq('grain', 'quarter')
-        .in('period_start', [currentQuarterStart, previousQuarterStart])
-        .is('deleted_at', null),
+      // Live quarter/dues figures straight from invoices, estimates and orders (no metrics_* tables).
+      db.schema('app').rpc('existing_buyer_context_snapshot', { p_buyer_id: id }),
       db
         .schema('app')
         .from('invoices')
@@ -184,6 +161,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         .select('occurred_at')
         .eq('tenant_id', tenantId)
         .eq('buyer_id', id)
+        .is('deleted_at', null)
         .order('occurred_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -194,8 +172,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       buyerUsersRes.error ||
       cohortMembersRes.error ||
       buyerPriceListAssignmentRes.error ||
-      buyerNowSummaryRes.error ||
-      buyerPeriodSummaryRes.error ||
+      snapshotRes.error ||
       lastInvoiceRes.error ||
       lastEstimateRes.error ||
       lastOrderRes.error ||
@@ -207,8 +184,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         buyerUsersRes.error ??
           cohortMembersRes.error ??
           buyerPriceListAssignmentRes.error ??
-          buyerNowSummaryRes.error ??
-          buyerPeriodSummaryRes.error ??
+          snapshotRes.error ??
           lastInvoiceRes.error ??
           lastEstimateRes.error ??
           lastOrderRes.error ??
@@ -223,29 +199,33 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       | 'estimates'
       | 'none';
 
-    const nowSummary = (buyerNowSummaryRes.data ?? null) as {
-      receivable_amount: number;
-      receivable_invoice_count: number;
-      overdue_amount: number;
-      overdue_invoice_count: number;
-      credit_limit: number;
-      credit_available: number;
-    } | null;
-    const periodRows = (buyerPeriodSummaryRes.data ?? []) as Array<{
-      period_start: string;
-      invoice_value: number;
-      invoice_count: number;
-      estimate_value: number;
-      estimate_count: number;
-      order_value: number;
-      order_count: number;
-      app_demand_value: number;
-      app_demand_count: number;
-      primary_demand_count: number;
-      primary_demand_value: number;
-    }>;
-    const currentQuarter = periodRows.find((row) => row.period_start === currentQuarterStart) ?? null;
-    const previousQuarter = periodRows.find((row) => row.period_start === previousQuarterStart) ?? null;
+    type Snapshot = {
+      sales?: { current?: { invoice_value?: number; invoice_count?: number }; previous?: { invoice_value?: number; invoice_count?: number } };
+      demand?: { current?: { value?: number; count?: number }; previous?: { value?: number; count?: number } };
+      app_engagement?: { value?: number; count?: number };
+      dues?: {
+        receivable_amount?: number;
+        receivable_invoice_count?: number;
+        overdue_amount?: number;
+        overdue_invoice_count?: number;
+        credit_limit?: number;
+        credit_available?: number;
+      };
+    };
+    const snapshot = (snapshotRes.data ?? null) as Snapshot | null;
+    const nowSummary = snapshot?.dues ?? null;
+    const currentQuarter = {
+      invoice_value: snapshot?.sales?.current?.invoice_value ?? 0,
+      invoice_count: snapshot?.sales?.current?.invoice_count ?? 0,
+      primary_demand_value: snapshot?.demand?.current?.value ?? 0,
+      primary_demand_count: snapshot?.demand?.current?.count ?? 0,
+      app_demand_value: snapshot?.app_engagement?.value ?? 0,
+      app_demand_count: snapshot?.app_engagement?.count ?? 0,
+    };
+    const previousQuarter = {
+      invoice_value: snapshot?.sales?.previous?.invoice_value ?? 0,
+      primary_demand_value: snapshot?.demand?.previous?.value ?? 0,
+    };
 
     function trendPct(current: number, previous: number): number | null {
       if (previous <= 0) return null;
@@ -260,6 +240,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const lastInvoiceAt = lastInvoice ? (lastInvoice.invoice_date ?? lastInvoice.created_at) : null;
     const lastEstimateAt = lastEstimate ? (lastEstimate.estimate_date ?? lastEstimate.created_at) : null;
     const lastOrderAt = lastOrder ? (lastOrder.placed_at ?? lastOrder.created_at) : null;
+    // The ledger keeps one row per buyer per day per event, so this is the day's first event, not the last one.
     const lastBuyerAppActivityAt = lastBuyerAppActivity?.occurred_at ?? null;
 
     const activityCandidates: Array<{ kind: string; at: string | null }> = [
@@ -375,19 +356,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         },
       },
       meta_strip_4: {
-        sales_qtd_value: Number(currentQuarter?.invoice_value ?? 0),
-        sales_qtd_count: Number(currentQuarter?.invoice_count ?? 0),
-        sales_qtd_trend_pct: trendPct(Number(currentQuarter?.invoice_value ?? 0), Number(previousQuarter?.invoice_value ?? 0)),
+        sales_qtd_value: Number(currentQuarter.invoice_value ?? 0),
+        sales_qtd_count: Number(currentQuarter.invoice_count ?? 0),
+        sales_qtd_trend_pct: trendPct(Number(currentQuarter.invoice_value ?? 0), Number(previousQuarter.invoice_value ?? 0)),
         receivable_amount: Number(nowSummary?.receivable_amount ?? 0),
         receivable_invoice_count: Number(nowSummary?.receivable_invoice_count ?? 0),
         overdue_amount: Number(nowSummary?.overdue_amount ?? 0),
         overdue_invoice_count: Number(nowSummary?.overdue_invoice_count ?? 0),
         primary_demand_kind: primaryDemandKind,
-        demand_qtd_value: Number(currentQuarter?.primary_demand_value ?? 0),
-        demand_qtd_count: Number(currentQuarter?.primary_demand_count ?? 0),
-        demand_qtd_trend_pct: trendPct(Number(currentQuarter?.primary_demand_value ?? 0), Number(previousQuarter?.primary_demand_value ?? 0)),
-        app_engagement_value: Number(currentQuarter?.app_demand_value ?? 0),
-        app_engagement_count: Number(currentQuarter?.app_demand_count ?? 0),
+        demand_qtd_value: Number(currentQuarter.primary_demand_value ?? 0),
+        demand_qtd_count: Number(currentQuarter.primary_demand_count ?? 0),
+        demand_qtd_trend_pct: trendPct(Number(currentQuarter.primary_demand_value ?? 0), Number(previousQuarter.primary_demand_value ?? 0)),
+        app_engagement_value: Number(currentQuarter.app_demand_value ?? 0),
+        app_engagement_count: Number(currentQuarter.app_demand_count ?? 0),
         credit_used: creditUsed,
         credit_available: creditAvailable,
         credit_limit: creditLimit,
