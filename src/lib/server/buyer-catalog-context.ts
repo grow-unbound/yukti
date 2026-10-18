@@ -25,8 +25,14 @@ import type {
 
 const CONTEXT_REVALIDATE_SECONDS = 60;
 
+// app.buyers.geography stores explicit JSON nulls (e.g. {"city": null}) for unset parts; treat as absent.
+const geoPart = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? undefined);
+
 const geographySchema = z
-  .object({ state: z.string().optional(), city: z.string().optional(), zone: z.string().optional() })
+  .object({ state: geoPart, city: geoPart, zone: geoPart })
   .passthrough()
   .nullable();
 
