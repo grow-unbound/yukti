@@ -1,4 +1,5 @@
 import { loadInventoryAvailabilityMap } from '@/lib/server/warehouse-inventory';
+import { firstStoredImageUrl } from '@/lib/r2-url';
 import {
   deriveLinePriceState,
   deriveVelocity,
@@ -101,10 +102,10 @@ export async function loadEnquiryTriage(
 
   const [estimateRes, itemsRes, catalogRes] = await Promise.all([
     d.schema('app').from('estimates')
-      .select('id, tenant_id, buyer_id, location_id, estimate_number, status, total_amount, notes, estimate_type, price_visibility')
+      .select('id, tenant_id, buyer_id, location_id, estimate_number, status, total_amount, tax_amount, discount_flat, freight, round_off, notes, estimate_type, price_visibility')
       .eq('id', estimateId).eq('tenant_id', tenantId).is('deleted_at', null).maybeSingle(),
     d.schema('app').from('estimate_items')
-      .select('id, tenant_product_id, qty, unit_price, item_order, buyer_target_unit_price_min, buyer_target_unit_price_max, buyer_note')
+      .select('id, tenant_product_id, qty, unit_price, disc_pct, item_order, buyer_target_unit_price_min, buyer_target_unit_price_max, buyer_note')
       .eq('estimate_id', estimateId).is('deleted_at', null).order('item_order', { ascending: true }),
     d.schema('app').from('catalogs')
       .select('pricing_mode, collect_target_unit_price_range')
@@ -128,7 +129,7 @@ export async function loadEnquiryTriage(
   const [productsRes, inventory, velocityRows] = await Promise.all([
     productIds.length
       ? d.schema('app').from('tenant_products')
-          .select('id, internal_sku, name_override, master_product_id, tenant_brand_id, tenant_category_id')
+          .select('id, internal_sku, name_override, master_product_id, tenant_brand_id, tenant_category_id, image_urls')
           .in('id', productIds).eq('tenant_id', tenantId)
       : Promise.resolve({ data: [] }),
     loadInventoryAvailabilityMap(d, productIds, locationId),
@@ -299,8 +300,10 @@ export async function loadEnquiryTriage(
       name: product ? nameOf(product) : 'Product',
       sku: asString(product?.internal_sku) ?? '—',
       brandName: product ? brandOf(product) : null,
+      imageUrl: firstStoredImageUrl(product?.image_urls),
       qty,
       unitPrice,
+      discPct: Number(item.disc_pct ?? 0),
       targetMin,
       targetMax,
       buyerNote: asString(item.buyer_note),
@@ -330,6 +333,10 @@ export async function loadEnquiryTriage(
     hiddenPricing: estimate.estimate_type === 'without_price' || estimate.price_visibility === 'hide_price',
     collectTargetUnitPriceRange: catalog?.pricing_mode === 'hide_price_collect_enquiry' && catalog.collect_target_unit_price_range === true,
     totalAmount: estimate.total_amount == null ? null : Number(estimate.total_amount),
+    taxAmount: Number(estimate.tax_amount ?? 0),
+    discountFlat: Number(estimate.discount_flat ?? 0),
+    freight: Number(estimate.freight ?? 0),
+    roundOff: Number(estimate.round_off ?? 0),
     notes: asString(estimate.notes),
     lines,
   };

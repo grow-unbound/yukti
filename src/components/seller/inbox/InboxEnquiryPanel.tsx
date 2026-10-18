@@ -5,7 +5,6 @@ import { Fragment, useState } from 'react';
 import { ChevronDown, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEnquiryTriage, useSubstituteEnquiryLine } from '@/hooks/useInboxEntries';
-import { useEstimateComposer } from '@/hooks/useEstimates';
 import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
 import { computeDisplayDocumentTotals } from '@/lib/gst';
 import type { EnquiryTriageLine } from '@/lib/inbox/enquiry-triage';
@@ -240,13 +239,11 @@ function DesktopLineDetails({
 
 function DesktopLinesTable({
   lines,
-  imageById,
   estimateId,
   entryId,
   showTargetPricing,
 }: {
   lines: EnquiryTriageLine[];
-  imageById: Map<string, string | null>;
   estimateId: string;
   entryId: string;
   showTargetPricing: boolean;
@@ -294,7 +291,7 @@ function DesktopLinesTable({
                     <td className="py-3 pl-6 pr-5 tabular-nums text-cream-600">{index + 1}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-start gap-3">
-                        <ProductThumb src={imageById.get(line.id) ?? null} name={line.name} />
+                        <ProductThumb src={line.imageUrl} name={line.name} />
                         <div className="min-w-0">
                           <p className="truncate font-medium text-cream-900" title={line.name}>{line.name}</p>
                           <p className="truncate text-xs text-cream-600">{desktopLineSubtext(line)}</p>
@@ -344,7 +341,6 @@ export function InboxEnquirySkeleton() {
 
 export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
   const { data, isLoading, isError } = useEnquiryTriage(entryId);
-  const composer = useEstimateComposer(data?.estimateId ?? null).data;
   const { gstInclusive, policyLoading } = useBusinessPolicy();
 
   if (isLoading || policyLoading) return <InboxEnquirySkeleton />;
@@ -352,17 +348,19 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
     return <p className="text-base text-cream-600">Couldn&apos;t load enquiry items.</p>;
   }
 
-  const imageById = new Map((composer?.items ?? []).map((item) => [item.id, item.image_url ?? null]));
-  const hasTotals = composer?.total_amount != null;
+  const hasTotals = data.totalAmount != null;
   // Show qty x price lines summed (stored subtotal can be ex-GST after a Zoho sync-back); GST per tenant policy.
-  const displayTotals = composer
-    ? computeDisplayDocumentTotals(composer.items, {
-        gstInclusive,
-        taxAmount: composer.tax_amount,
-        discount_flat: composer.discount_flat,
-        freight: composer.freight,
-        round_off: composer.round_off,
-      })
+  const displayTotals = hasTotals
+    ? computeDisplayDocumentTotals(
+        data.lines.map((line) => ({ qty: line.qty, unit_price: documentUnitPrice(line) ?? 0, disc_pct: line.discPct })),
+        {
+          gstInclusive,
+          taxAmount: data.taxAmount,
+          discount_flat: data.discountFlat,
+          freight: data.freight,
+          round_off: data.roundOff,
+        },
+      )
     : null;
   const showTargetPricing = data.hiddenPricing && data.collectTargetUnitPriceRange;
 
@@ -373,7 +371,7 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
           <MobileLineCard
             key={line.id}
             line={line}
-            imageUrl={imageById.get(line.id) ?? null}
+            imageUrl={line.imageUrl}
             estimateId={data.estimateId}
             entryId={entryId}
             showTargetPricing={showTargetPricing}
@@ -382,7 +380,6 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
       </div>
       <DesktopLinesTable
         lines={data.lines}
-        imageById={imageById}
         estimateId={data.estimateId}
         entryId={entryId}
         showTargetPricing={showTargetPricing}
@@ -407,10 +404,10 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
         </div>
       ) : null}
 
-      {composer?.seller_note ? (
+      {data.notes ? (
         <div className="rounded-[14px] border border-cream-200 px-4 py-3">
           <p className={HEAD_CLASS}>Your note to the buyer</p>
-          <p className="mt-1 whitespace-pre-wrap text-base text-cream-800">{composer.seller_note}</p>
+          <p className="mt-1 whitespace-pre-wrap text-base text-cream-800">{data.notes}</p>
         </div>
       ) : null}
     </div>
