@@ -173,6 +173,12 @@ Item format:
 - why: before this change the table held 17x more rows than distinct buyer-days, a 152 ms RPC per call, 313 MB WAL (#1 producer, docs/incidents/2026-10-17-prod-state-and-buyer-call-audit.md F4) and mirror triggers on every estimate/order write; the DB was 26 MiB over plan. A reader/writer that reintroduces per-event rows would undo it.
 - cost: 1 bullet, path-scoped (rules auto-load on matching files)
 
+### 2026-10-18 fix/display-stored-line-prices-* — saved documents display from line unit_price, never stored line_total/subtotal or current prices
+- [ ] target: .claude/rules/ (new path-scoped bullet, e.g. pricing rule)   change: add
+- text: `Estimate/order/invoice detail surfaces (buyer + seller, inbox panels) derive lines as qty x unit_price less disc_pct, subtotal = their sum, tax = 0 ("Included in prices") when business_policy.gst_inclusive else the stored tax_amount, total = subtotal - discount_flat + tax + freight + round_off (computeDisplayDocumentTotals / computeLineTaxableAmount in src/lib/gst.ts). Never render stored line_total/subtotal (ex-GST after Zoho sync-back) or the current resolve_prices_batch price on a saved document; resolved price is only a fallback for hidden-price lines. Not covered yet: ModalConfirmSalesOrder, list-row totals, WhatsApp/PDF document output.`
+- why: PRs #220/#223/#224/#225 fixed this surface by surface after a release showed ex-GST lines (invoice WYT/26-27/46568) and an inbox table (current price 3,150) disagreeing with its totals (stored 2,700); each surface had its own math.
+- cost: 1 bullet, path-scoped
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
