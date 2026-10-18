@@ -51,16 +51,18 @@ function lineAmountLabel(line: EnquiryTriageLine, showTargetPricing: boolean) {
   return price != null ? money(price * line.qty) : '-';
 }
 
+// Caption for the current catalog price. "Base Price" when the line carries no stored price (it is the
+// price shown); "Current price" when it differs from the price stored on the estimate.
+function currentPriceCaption(line: EnquiryTriageLine): string | null {
+  if (line.resolvedPrice == null) return null;
+  if (line.unitPrice == null || line.unitPrice <= 0) return `Base Price ${money(line.resolvedPrice)}`;
+  return line.resolvedPrice !== line.unitPrice ? `Current price ${money(line.resolvedPrice)}` : null;
+}
+
 function desktopLineSubtext(line: EnquiryTriageLine) {
   const parts = [
     line.sku,
-    line.resolvedPrice == null
-      ? null
-      : line.unitPrice == null || line.unitPrice <= 0
-        ? `Base Price ${money(line.resolvedPrice)}`
-        : line.resolvedPrice !== line.unitPrice
-          ? `Current price ${money(line.resolvedPrice)}`
-          : null,
+    currentPriceCaption(line),
     `Stock ${line.onHand}`,
     hasVelocitySignal(line.velocity) ? velocityLabel(line.velocity) : null,
   ].filter(Boolean);

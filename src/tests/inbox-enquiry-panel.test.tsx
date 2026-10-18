@@ -123,6 +123,21 @@ describe('InboxEnquiryPanel', () => {
     expect(screen.getAllByText(/Current price ₹3,150/).length).toBeGreaterThan(0);
   });
 
+  it('shows no current-price caption when the stored and current prices match', () => {
+    renderPanel();
+    expect(screen.queryByText(/Current price/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Base Price/)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the resolved price when the line has no stored price', () => {
+    const line = (triagePayload as { lines: Array<Record<string, unknown>> }).lines[0];
+    line.unitPrice = null;
+    line.resolvedPrice = 480;
+    renderPanel();
+    expect(screen.getAllByText('₹480').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Base Price ₹480/).length).toBeGreaterThan(0);
+  });
+
   it('drops the estimate-number/total header row and the estimate-level buyer note', () => {
     renderPanel();
     expect(screen.queryByText('EST-016127')).not.toBeInTheDocument();
