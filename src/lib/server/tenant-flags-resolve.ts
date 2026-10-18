@@ -10,7 +10,7 @@ const DEFAULT_CREATE_FLAGS: TenantCreateFlags = {
   create_sales_orders: true,
   create_invoices: true,
 };
-const DEFAULT_OFF_FLAGS = new Set<string>([FEATURE_FLAGS.WHATSAPP_INBOX]);
+const DEFAULT_OFF_FLAGS = new Set<string>([FEATURE_FLAGS.WHATSAPP_INBOX, FEATURE_FLAGS.PULSE_V2]);
 
 let posthogClient: PostHog | null = null;
 
