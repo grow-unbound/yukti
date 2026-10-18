@@ -18,6 +18,7 @@ describe('relativeDelta', () => {
     expect(relativeDelta(10, null)).toBeUndefined();
     expect(relativeDelta(10, 0)).toBeUndefined();
     expect(relativeDelta(10, 10)).toBeUndefined();
+    expect(relativeDelta(1, 3, 3)).toBeUndefined(); // base below the minimum count
     expect(relativeDelta(150, 100)).toEqual({ text: '+50% vs previous', tone: 'up' });
     expect(relativeDelta(50, 100)).toEqual({ text: '-50% vs previous', tone: 'down' });
   });
@@ -39,6 +40,11 @@ describe('buildScorecardTiles', () => {
   it('suppresses every delta for thin windows and when there is no comparison', () => {
     expect(buildScorecardTiles(sc({ period: { key: 'mtd', label: '', thin: true } }), now).every((t) => t.delta === undefined)).toBe(true);
     expect(buildScorecardTiles(sc({ previous: null, compare_window: null }), now).every((t) => t.delta === undefined)).toBe(true);
+  });
+
+  it('does not print a change when the comparison window has too few documents or customers', () => {
+    const small = sc({ previous: m({ demand_docs: 3, app_invoiced_docs: 2, engaged_buyers: 4, total_invoiced_docs: 3 }) });
+    expect(buildScorecardTiles(small, now).every((t) => t.delta === undefined)).toBe(true);
   });
 
   it('shows a dash instead of a percentage when nothing was invoiced', () => {

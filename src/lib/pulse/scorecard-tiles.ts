@@ -15,9 +15,19 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 const money = (n: number) => formatNumberValue(n, 'CURRENCY_THRESHOLD');
 const count = (n: number) => formatNumberValue(n, 'COUNT');
 
-/** Relative change vs the comparison window; undefined when there is no usable base (none, zero, or thin window). */
-export function relativeDelta(current: number, previous: number | null | undefined): { text: string; tone: 'up' | 'down' } | undefined {
-  if (previous == null || previous <= 0) return undefined;
+/** Minimum number of documents/customers in the comparison window before a percentage change is shown. */
+export const DELTA_MIN_BASE = 5;
+
+/**
+ * Relative change vs the comparison window; undefined when there is no usable base: none, zero, a thin window,
+ * or fewer than DELTA_MIN_BASE underlying documents/customers (a swing from 3 to 1 is noise, not a trend).
+ */
+export function relativeDelta(
+  current: number,
+  previous: number | null | undefined,
+  baseCount: number = DELTA_MIN_BASE,
+): { text: string; tone: 'up' | 'down' } | undefined {
+  if (previous == null || previous <= 0 || baseCount < DELTA_MIN_BASE) return undefined;
   const pct = Math.round(((current - previous) / previous) * 100);
   if (pct === 0) return undefined;
   return { text: `${pct > 0 ? '+' : ''}${pct}% vs previous`, tone: pct > 0 ? 'up' : 'down' };
@@ -38,7 +48,7 @@ export function buildScorecardTiles(sc: PulseScorecardResponse, now: Date = new 
   const prev = sc.period.thin ? null : sc.previous;
   const tiles: ScorecardTile[] = [];
 
-  const d1 = relativeDelta(cur.demand_value, prev?.demand_value);
+  const d1 = relativeDelta(cur.demand_value, prev?.demand_value, prev?.demand_docs ?? 0);
   tiles.push({
     id: 'demand',
     label: 'Orders and quotes received',
@@ -48,7 +58,7 @@ export function buildScorecardTiles(sc: PulseScorecardResponse, now: Date = new 
     deltaTone: d1?.tone,
   });
 
-  const d2 = relativeDelta(cur.app_invoiced_value, prev?.app_invoiced_value);
+  const d2 = relativeDelta(cur.app_invoiced_value, prev?.app_invoiced_value, prev?.app_invoiced_docs ?? 0);
   tiles.push({
     id: 'invoiced',
     label: 'Invoiced from the app',
@@ -60,7 +70,8 @@ export function buildScorecardTiles(sc: PulseScorecardResponse, now: Date = new 
 
   const share = sharePct(cur);
   const prevShare = sharePct(prev);
-  const shareDelta = share != null && prevShare != null ? Math.round((share - prevShare) * 10) / 10 : null;
+  const shareBase = Math.min(cur.total_invoiced_docs, prev?.total_invoiced_docs ?? 0);
+  const shareDelta = share != null && prevShare != null && shareBase >= DELTA_MIN_BASE ? Math.round((share - prevShare) * 10) / 10 : null;
   tiles.push({
     id: 'share',
     label: 'Share of all invoiced',
@@ -70,7 +81,7 @@ export function buildScorecardTiles(sc: PulseScorecardResponse, now: Date = new 
     deltaTone: shareDelta != null && shareDelta !== 0 ? (shareDelta > 0 ? 'up' : 'down') : undefined,
   });
 
-  const d4 = relativeDelta(cur.engaged_buyers, prev?.engaged_buyers);
+  const d4 = relativeDelta(cur.engaged_buyers, prev?.engaged_buyers, prev?.engaged_buyers ?? 0);
   const { new: nNew, returning, reactivated } = sc.quoting_buyers;
   const mix = [nNew > 0 ? `${count(nNew)} new` : null, returning > 0 ? `${count(returning)} returning` : null, reactivated > 0 ? `${count(reactivated)} came back` : null]
     .filter(Boolean)

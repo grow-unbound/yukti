@@ -1,7 +1,7 @@
 'use client';
 
 import { ErrorState } from '@/components/ui/empty-state';
-import { InsightStrip4 } from '@/components/seller/layout';
+import { MetricCard } from '@/components/seller/detail';
 import { usePulseScorecard } from '@/hooks/usePulseV2';
 import { buildScorecardTiles } from '@/lib/pulse/scorecard-tiles';
 
@@ -36,10 +36,22 @@ export function PulseScorecard({ query }: { query: string }) {
         </div>
       ) : null}
       {q.data ? (
-        <InsightStrip4
-          className="md:grid-cols-3 xl:grid-cols-5"
-          tiles={buildScorecardTiles(q.data).map(({ label, value, sub, delta, deltaTone, tone }) => ({ label, value, sub, delta, deltaTone, tone }))}
-        />
+        // MetricGrid caps at four tiles; the scorecard has five, so lay the cards out directly.
+        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 xl:grid-cols-5">
+          {buildScorecardTiles(q.data).map(({ id, label, value, sub, delta, deltaTone, tone }) => (
+            <MetricCard
+              key={id}
+              label={label}
+              value={value}
+              sub={sub}
+              delta={delta}
+              deltaTone={deltaTone}
+              tone={tone}
+              className="max-md:min-h-[96px] max-md:px-3 max-md:py-3"
+              showSupportingText
+            />
+          ))}
+        </div>
       ) : null}
     </PulseBandShell>
   );
