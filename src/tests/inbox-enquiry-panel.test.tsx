@@ -111,6 +111,18 @@ describe('InboxEnquiryPanel', () => {
     expect(screen.queryByText('₹4,237.29')).not.toBeInTheDocument();
   });
 
+  it('shows the price stored on the estimate, not the current resolved price, so lines match totals', () => {
+    gstInclusiveMock = true;
+    const line = (triagePayload as { lines: Array<Record<string, unknown>> }).lines[0];
+    line.qty = 1;
+    line.unitPrice = 2700;
+    line.resolvedPrice = 3150;
+    renderPanel();
+    expect(screen.getAllByText('₹2,700').length).toBeGreaterThan(0);
+    expect(screen.queryByText('₹3,150')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Current price ₹3,150/).length).toBeGreaterThan(0);
+  });
+
   it('drops the estimate-number/total header row and the estimate-level buyer note', () => {
     renderPanel();
     expect(screen.queryByText('EST-016127')).not.toBeInTheDocument();
