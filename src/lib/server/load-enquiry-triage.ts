@@ -303,7 +303,7 @@ export async function loadEnquiryTriage(
       imageUrl: firstStoredImageUrl(product?.image_urls),
       qty,
       unitPrice,
-      discPct: Number(item.disc_pct ?? 0),
+      discPct: Number.isFinite(Number(item.disc_pct)) ? Number(item.disc_pct) : 0,
       targetMin,
       targetMax,
       buyerNote: asString(item.buyer_note),

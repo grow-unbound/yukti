@@ -163,6 +163,16 @@ describe('InboxEnquiryPanel', () => {
     expect(document.querySelector('img')).not.toBeNull();
   });
 
+  it('totals use the stored line price only, never the catalog price, for an unpriced line', () => {
+    const line = (triagePayload as { lines: Array<Record<string, unknown>> }).lines[0];
+    line.unitPrice = null;
+    line.resolvedPrice = 480;
+    triagePayload = { ...triagePayload, totalAmount: 0, taxAmount: 0 };
+    renderPanel();
+    // the lines table still shows the catalog price as a reference; the totals card must not sum it
+    expect(screen.getAllByText('₹0').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('drops the estimate-number/total header row and the estimate-level buyer note', () => {
     renderPanel();
     expect(screen.queryByText('EST-016127')).not.toBeInTheDocument();

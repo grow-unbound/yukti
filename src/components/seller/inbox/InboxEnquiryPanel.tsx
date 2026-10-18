@@ -352,7 +352,7 @@ export function InboxEnquiryPanel({ entryId }: { entryId: string }) {
   // Show qty x price lines summed (stored subtotal can be ex-GST after a Zoho sync-back); GST per tenant policy.
   const displayTotals = hasTotals
     ? computeDisplayDocumentTotals(
-        data.lines.map((line) => ({ qty: line.qty, unit_price: documentUnitPrice(line) ?? 0, disc_pct: line.discPct })),
+        data.lines.map((line) => ({ qty: line.qty, unit_price: line.unitPrice ?? 0, disc_pct: line.discPct })),
         {
           gstInclusive,
           taxAmount: data.taxAmount,

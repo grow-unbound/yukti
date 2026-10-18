@@ -636,6 +636,7 @@ async function saveDocumentNow(nextDocument: EstimateComposerDocument, nextLines
       });
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-detail', targetId] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimate-composer', targetId] });
+      void qc.invalidateQueries({ queryKey: ['inbox-entry-enquiry'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates'] });
       void qc.invalidateQueries({ queryKey: ['tenant-estimates-infinite'] });
       toast.success('Estimate sent');
