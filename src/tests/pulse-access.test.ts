@@ -27,14 +27,19 @@ vi.mock('@/lib/supabase', () => ({
     })),
   },
 }));
-vi.mock('@/components/seller/pulse/PulseDashboardClient', () => ({
-  PulseDashboardClient: () => null,
+vi.mock('@/components/seller/pulse/v2/PulseV2Client', () => ({
+  PulseV2Client: () => null,
 }));
 
-import { GET as getContribution } from '../../app/api/tenant/pulse/contribution/route';
 import { GET as getDemandSignals } from '../../app/api/tenant/pulse/demand-signals/route';
-import { GET as getOpportunities } from '../../app/api/tenant/pulse/opportunities/route';
-import { GET as getOpportunityBuyers } from '../../app/api/tenant/pulse/opportunities/[id]/buyers/route';
+import { GET as getScorecard } from '../../app/api/tenant/pulse/scorecard/route';
+import { GET as getActNow } from '../../app/api/tenant/pulse/act-now/route';
+import { GET as getActBuyers } from '../../app/api/tenant/pulse/act-now/[group]/route';
+import { GET as getFunnel } from '../../app/api/tenant/pulse/funnel/route';
+import { GET as getSellThrough } from '../../app/api/tenant/pulse/sellthrough/route';
+import { GET as getCustomers } from '../../app/api/tenant/pulse/customers/route';
+import { GET as getPatterns } from '../../app/api/tenant/pulse/patterns/route';
+import { GET as getReview } from '../../app/api/tenant/pulse/review/route';
 import PulseLayout from '../../app/(seller)/pulse/layout';
 import PulsePage from '../../app/(seller)/pulse/page';
 import DashboardRedirectPage from '../../app/(seller)/dashboard/page';
@@ -45,17 +50,17 @@ const unassignedAssistant = { tenant_id: 'tenant-1', role: 'seller_assistant', l
 const buyer = { tenant_id: 'tenant-1', role: 'buyer_admin', location_ids: null };
 const admin = { tenant_id: 'tenant-1', role: 'seller_admin', location_ids: null };
 
+const get = (path: string) => new NextRequest(`http://localhost${path}`);
 const apiCalls: Array<[string, () => Promise<Response>]> = [
-  ['contribution', () => getContribution(new NextRequest('http://localhost/api/tenant/pulse/contribution'))],
-  ['demand-signals', () => getDemandSignals(new NextRequest('http://localhost/api/tenant/pulse/demand-signals'))],
-  ['opportunities', () => getOpportunities(new NextRequest('http://localhost/api/tenant/pulse/opportunities'))],
-  [
-    'opportunity buyers',
-    () => getOpportunityBuyers(
-      new NextRequest('http://localhost/api/tenant/pulse/opportunities/dormant_customers_90d/buyers'),
-      { params: Promise.resolve({ id: 'dormant_customers_90d' }) },
-    ),
-  ],
+  ['demand-signals', () => getDemandSignals(get('/api/tenant/pulse/demand-signals'))],
+  ['scorecard', () => getScorecard(get('/api/tenant/pulse/scorecard'))],
+  ['act-now', () => getActNow(get('/api/tenant/pulse/act-now'))],
+  ['act-now group', () => getActBuyers(get('/api/tenant/pulse/act-now/went_quiet'), { params: Promise.resolve({ group: 'went_quiet' }) })],
+  ['funnel', () => getFunnel(get('/api/tenant/pulse/funnel'))],
+  ['sellthrough', () => getSellThrough(get('/api/tenant/pulse/sellthrough'))],
+  ['customers', () => getCustomers(get('/api/tenant/pulse/customers'))],
+  ['patterns', () => getPatterns(get('/api/tenant/pulse/patterns'))],
+  ['review', () => getReview(get('/api/tenant/pulse/review'))],
 ];
 
 describe('Pulse is seller_admin only', () => {

@@ -365,7 +365,7 @@ function DemandSignalSheet({
   );
 }
 
-function DemandSignalsSection() {
+export function DemandSignalsSection() {
   const freshnessQuery = usePulseDemandSignal('conversion_gaps');
   const freshness = formatPulseFreshness(freshnessQuery.data?.source_watermark ?? freshnessQuery.data?.computed_at);
   const [selectedSignal, setSelectedSignal] = useState<{ kind: PulseDemandSignalKind; rows: PulseDemandSignalRow[]; total: number } | null>(null);

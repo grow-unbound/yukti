@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { getSellerLandingPeriodMeta } from '@/lib/server/seller-period';
 
 const getVerifiedClaimsMock = vi.fn();
 const getFlagMock = vi.fn();
@@ -132,49 +131,21 @@ function setBootstrapDefaults() {
   dbResponses['app.orders'] = [{ data: null }];
   dbResponses['app.buyer_app_activity'] = [{ data: null }];
   dbResponses['rpc.metrics_v4_primary_demand_kind'] = [{ data: 'orders' }];
-  dbResponses['app.metrics_buyer_now_summary'] = [
+  dbResponses['rpc.existing_buyer_context_snapshot'] = [
     {
       data: {
-        receivable_amount: 64000,
-        receivable_invoice_count: 2,
-        overdue_amount: 12000,
-        overdue_invoice_count: 1,
-        credit_limit: 100000,
-        credit_available: 36000,
+        sales: { current: { invoice_value: 250000, invoice_count: 4 }, previous: { invoice_value: 200000, invoice_count: 3 } },
+        demand: { kind: 'orders', current: { value: 188000, count: 3 }, previous: { value: 150000, count: 2 } },
+        app_engagement: { value: 50000, count: 2 },
+        dues: {
+          receivable_amount: 64000,
+          receivable_invoice_count: 2,
+          overdue_amount: 12000,
+          overdue_invoice_count: 1,
+          credit_limit: 100000,
+          credit_available: 36000,
+        },
       },
-    },
-  ];
-  const quarterMeta = getSellerLandingPeriodMeta('quarter');
-  dbResponses['app.metrics_buyer_period_summary'] = [
-    {
-      data: [
-        {
-          period_start: quarterMeta.current_start.slice(0, 10),
-          invoice_value: 250000,
-          invoice_count: 4,
-          estimate_value: 40000,
-          estimate_count: 1,
-          order_value: 188000,
-          order_count: 3,
-          app_demand_value: 50000,
-          app_demand_count: 2,
-          primary_demand_count: 3,
-          primary_demand_value: 188000,
-        },
-        {
-          period_start: quarterMeta.previous_start.slice(0, 10),
-          invoice_value: 200000,
-          invoice_count: 3,
-          estimate_value: 0,
-          estimate_count: 0,
-          order_value: 150000,
-          order_count: 2,
-          app_demand_value: 30000,
-          app_demand_count: 1,
-          primary_demand_count: 2,
-          primary_demand_value: 150000,
-        },
-      ],
     },
   ];
 }
