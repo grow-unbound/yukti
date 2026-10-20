@@ -90,4 +90,19 @@ describe('loadEnquiryTriage velocity', () => {
     expect(payload?.lines[0]?.velocity).toEqual({ unitsPerWeek: 0, daysCover: null, lastInvoiceAt: null });
     expect(errorSpy).toHaveBeenCalled();
   });
+
+  it('returns header adjustments, line discount and product image so the panel needs no estimate-detail fetch', async () => {
+    rows.estimates = [{
+      ...(rows.estimates[0] as Record<string, unknown>),
+      tax_amount: 18, discount_flat: 5, freight: 7, round_off: -0.5, notes: 'Ships Friday',
+    }];
+    rows.estimate_items = [{ ...(rows.estimate_items[0] as Record<string, unknown>), disc_pct: 10 }];
+    rows.tenant_products = [{ ...(rows.tenant_products[0] as Record<string, unknown>), image_urls: ['https://cdn.example.com/a.jpg'] }];
+    const { loadEnquiryTriage } = await import('@/lib/server/load-enquiry-triage');
+    const payload = await loadEnquiryTriage(db as never, TENANT, ESTIMATE);
+
+    expect(payload).toMatchObject({ taxAmount: 18, discountFlat: 5, freight: 7, roundOff: -0.5, notes: 'Ships Friday' });
+    expect(payload?.lines[0]?.discPct).toBe(10);
+    expect(payload?.lines[0]?.imageUrl).toEqual(expect.stringContaining('a.jpg'));
+  });
 });

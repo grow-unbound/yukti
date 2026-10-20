@@ -11,12 +11,16 @@ let triagePayload: EnquiryTriagePayload = {
   status: 'sent',
   hiddenPricing: false,
   collectTargetUnitPriceRange: false,
-  totalAmount: 5000,
-  notes: 'Please ship by Friday',
+  totalAmount: 5900,
+  taxAmount: 900,
+  discountFlat: 0,
+  freight: 0,
+  roundOff: 0,
+  notes: 'Ships Friday',
   lines: [
     {
       id: 'l1', tenantProductId: 'p1', name: 'CAT6 Cable', sku: 'SKU-1', brandName: 'Brand A',
-      qty: 10, unitPrice: 500, resolvedPrice: 500, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
+      qty: 10, unitPrice: 500, discPct: 0, imageUrl: null, resolvedPrice: 500, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
       onHand: 2, stock: { tone: 'danger', label: 'Out of stock', shortBy: 10 }, priceState: 'priced_oos',
       velocity: { unitsPerWeek: 3, daysCover: 12, lastInvoiceAt: null },
       alternates: [
@@ -40,10 +44,10 @@ vi.mock('@/hooks/useInboxEntries', () => ({
   useSubstituteEnquiryLine: () => ({ mutateAsync: substituteMutateAsync, isPending: false }),
 }));
 
+// The panel must render entirely from the enquiry payload (one request); any estimate-detail fetch is a regression.
+const useEstimateComposerMock = vi.fn();
 vi.mock('@/hooks/useEstimates', () => ({
-  useEstimateComposer: () => ({
-    data: { items: [{ id: 'l1', image_url: null, qty: 10, unit_price: 500, disc_pct: 0 }], subtotal: 4237.29, tax_amount: 900, total_amount: 5900, seller_note: 'Ships Friday' },
-  }),
+  useEstimateComposer: (...args: unknown[]) => useEstimateComposerMock(...args),
 }));
 
 vi.mock('@/hooks/useBusinessPolicy', () => ({
@@ -64,6 +68,7 @@ function renderPanel() {
 describe('InboxEnquiryPanel', () => {
   beforeEach(() => {
     gstInclusiveMock = false;
+    useEstimateComposerMock.mockClear();
     substituteMutateAsync.mockClear();
     triagePayload = {
       estimateId: 'est-1',
@@ -71,12 +76,16 @@ describe('InboxEnquiryPanel', () => {
       status: 'sent',
       hiddenPricing: false,
       collectTargetUnitPriceRange: false,
-      totalAmount: 5000,
-      notes: 'Please ship by Friday',
+      totalAmount: 5900,
+      taxAmount: 900,
+      discountFlat: 0,
+      freight: 0,
+      roundOff: 0,
+      notes: 'Ships Friday',
       lines: [
         {
           id: 'l1', tenantProductId: 'p1', name: 'CAT6 Cable', sku: 'SKU-1', brandName: 'Brand A',
-          qty: 10, unitPrice: 500, resolvedPrice: 500, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
+          qty: 10, unitPrice: 500, discPct: 0, imageUrl: null, resolvedPrice: 500, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
           onHand: 2, stock: { tone: 'danger', label: 'Out of stock', shortBy: 10 }, priceState: 'priced_oos',
           velocity: { unitsPerWeek: 3, daysCover: 12, lastInvoiceAt: null },
           alternates: [
@@ -136,6 +145,32 @@ describe('InboxEnquiryPanel', () => {
     renderPanel();
     expect(screen.getAllByText('₹480').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Base Price ₹480/).length).toBeGreaterThan(0);
+  });
+
+  it('renders totals, note and line image from the enquiry payload without fetching the estimate detail', () => {
+    const line = (triagePayload as { lines: Array<Record<string, unknown>> }).lines[0];
+    line.qty = 2;
+    line.unitPrice = 1000;
+    line.discPct = 10;
+    line.imageUrl = 'https://cdn.example.com/p1.jpg';
+    triagePayload = { ...triagePayload, taxAmount: 324, freight: 50 };
+    renderPanel();
+    expect(useEstimateComposerMock).not.toHaveBeenCalled();
+    // 2 x 1000 less 10% = 1800 subtotal; + 324 tax + 50 freight
+    expect(screen.getByText('₹1,800')).toBeInTheDocument();
+    expect(screen.getByText('₹2,174')).toBeInTheDocument();
+    expect(screen.getByText('Ships Friday')).toBeInTheDocument();
+    expect(document.querySelector('img')).not.toBeNull();
+  });
+
+  it('totals use the stored line price only, never the catalog price, for an unpriced line', () => {
+    const line = (triagePayload as { lines: Array<Record<string, unknown>> }).lines[0];
+    line.unitPrice = null;
+    line.resolvedPrice = 480;
+    triagePayload = { ...triagePayload, totalAmount: 0, taxAmount: 0 };
+    renderPanel();
+    // the lines table still shows the catalog price as a reference; the totals card must not sum it
+    expect(screen.getAllByText('₹0').length).toBeGreaterThanOrEqual(2);
   });
 
   it('drops the estimate-number/total header row and the estimate-level buyer note', () => {
