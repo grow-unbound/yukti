@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 const root = process.cwd();
 const composerRoute = readFileSync(join(root, 'app/api/tenant/products/composer/route.ts'), 'utf8');
 const buyerProductData = readFileSync(join(root, 'src/lib/server/buyer-product-data.ts'), 'utf8');
+const campaignItemsCache = readFileSync(join(root, 'src/lib/server/campaign-items-cache.ts'), 'utf8');
 
 describe('product query bounds', () => {
   it('caps metadata inputs and chunks selected product hydration without dropping normal selections', () => {
@@ -19,7 +20,10 @@ describe('product query bounds', () => {
     expect(buyerProductData).toContain('const BUYER_CATALOG_SUMMARY_LIMIT = 100');
     expect(buyerProductData).toContain(".select('id, campaign_items(count)')");
     expect(buyerProductData).toContain('.limit(BUYER_CATALOG_SUMMARY_LIMIT)');
-    expect(buyerProductData).toContain('.limit(orderedProductIds.length)');
+    // campaign_items are read once per campaign through the bounded, cached helper — never per page
+    expect(buyerProductData).toContain('getCampaignItemsForProducts');
+    expect(buyerProductData).not.toContain(".from('campaign_items')");
+    expect(campaignItemsCache).toContain('.limit(CAMPAIGN_ITEMS_LIMIT)');
     expect(buyerProductData).toContain('limit,\n      offset,');
     expect(buyerProductData).not.toContain(".from('campaign_items')\n      .select('campaign_id')");
   });

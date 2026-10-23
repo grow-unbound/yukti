@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
 import { resolveVisibleCampaignMap } from '@/lib/server/buyer-product-data';
+import { getCampaignItemsForProducts } from '@/lib/server/campaign-items-cache';
 
 export type BuyerPricedLine = {
   tenant_product_id: string;
@@ -52,15 +53,13 @@ export async function resolveAuthoritativePrices(
     if (campaignError) throw new Error(campaignError.message);
 
     if (campaignRow) {
-      const { data: campaignItemRows, error: campaignItemsError } = await db
-        .schema('app')
-        .from('campaign_items')
-        .select('tenant_product_id, price_override')
-        .eq('campaign_id', campaignId)
-        .in('tenant_product_id', items.map((item) => item.tenant_product_id))
-        .is('deleted_at', null);
-      if (campaignItemsError) throw new Error(campaignItemsError.message);
-      for (const row of (campaignItemRows ?? []) as Array<{ tenant_product_id: string; price_override: number | string | null }>) {
+      const campaignItemRows = await getCampaignItemsForProducts(
+        db,
+        params.tenantId,
+        [campaignId],
+        items.map((item) => item.tenant_product_id),
+      );
+      for (const row of campaignItemRows) {
         const override = campaignOverridePrice(row.price_override);
         if (override !== null) {
           campaignPriceMap.set(row.tenant_product_id, override);

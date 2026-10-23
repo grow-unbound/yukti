@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 const resolveVisibleCampaignMapMock = vi.fn();
 
+vi.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+}));
+
 vi.mock('@/lib/server/buyer-product-data', () => ({
   resolveVisibleCampaignMap: (...args: unknown[]) => resolveVisibleCampaignMapMock(...args),
 }));
