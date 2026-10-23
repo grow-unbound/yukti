@@ -9,6 +9,8 @@ vi.mock('@/lib/api-fetch', () => ({
 import { WhatsAppEmbeddedSignupDialog } from '@/components/seller/settings/WhatsAppEmbeddedSignupDialog';
 
 const loginMock = vi.fn();
+const popupOpenMock = vi.fn();
+const DEFAULT_SDK_REDIRECT_URI = 'https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46#cb=default';
 
 function renderDialog() {
   return render(
@@ -42,6 +44,11 @@ function sendSignupMessage(origin: string, event: string, data: Record<string, u
 describe('WhatsAppEmbeddedSignupDialog', () => {
   beforeEach(() => {
     loginMock.mockReset();
+    popupOpenMock.mockReset();
+    Object.defineProperty(window, 'open', { configurable: true, writable: true, value: popupOpenMock });
+    loginMock.mockImplementation(() => {
+      window.open(`https://www.facebook.com/v21.0/dialog/oauth?redirect_uri=${encodeURIComponent(DEFAULT_SDK_REDIRECT_URI)}`);
+    });
     apiPostMock.mockReset();
     apiPostMock.mockResolvedValue({
       ok: false,
@@ -119,6 +126,37 @@ describe('WhatsAppEmbeddedSignupDialog', () => {
 
     expect(await screen.findByLabelText('6-digit PIN')).toBeInTheDocument();
     expect(screen.queryByText(/did not return a business account/i)).not.toBeInTheDocument();
+  });
+
+  it('captures the SDK popup redirect URI and sends it with the authorization code', async () => {
+    const sdkRedirectUri = 'https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46#cb=abc&domain=app.yukti.so';
+    loginMock.mockImplementation((callback: (response: { authResponse?: { code?: string } }) => void) => {
+      window.open(`https://www.facebook.com/v21.0/dialog/oauth?redirect_uri=${encodeURIComponent(sdkRedirectUri)}`);
+      callback({ authResponse: { code: 'oauth-code' } });
+    });
+
+    await startSignup();
+    fireEvent.change(await screen.findByLabelText('6-digit PIN'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
+      '/api/settings/integrations/whatsapp/oauth/callback',
+      expect.objectContaining({ code: 'oauth-code', redirect_uri: sdkRedirectUri }),
+    ));
+    expect(popupOpenMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails before PIN entry when the SDK popup redirect URI cannot be captured', async () => {
+    loginMock.mockImplementation(() => {
+      window.open('https://www.facebook.com/v21.0/dialog/oauth');
+    });
+    const loginCallback = await startSignup();
+
+    act(() => loginCallback({ authResponse: { code: 'oauth-code' } }));
+
+    expect(await screen.findByText(/did not provide a verifiable OAuth callback/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText('6-digit PIN')).not.toBeInTheDocument();
+    expect(apiPostMock).not.toHaveBeenCalled();
   });
 
   it('does not silently choose the first WABA when Meta returns multiple account IDs', async () => {

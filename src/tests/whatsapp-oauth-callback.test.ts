@@ -34,7 +34,15 @@ import { subscribeWabaToApp } from '@/lib/integrations/whatsapp-graph';
 function req(overrides: Record<string, unknown> = {}) {
   return new NextRequest('http://localhost/api/settings/integrations/whatsapp/oauth/callback', {
     method: 'POST',
-    body: JSON.stringify({ code: 'c', waba_id: 'waba-1', phone_number_id: 'pn-1', business_id: 'b-1', pin: '123456', ...overrides }),
+    body: JSON.stringify({
+      code: 'c',
+      waba_id: 'waba-1',
+      phone_number_id: 'pn-1',
+      business_id: 'b-1',
+      redirect_uri: 'https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46#cb=test',
+      pin: '123456',
+      ...overrides,
+    }),
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -126,11 +134,46 @@ describe('POST /api/settings/integrations/whatsapp/oauth/callback', () => {
 
     expect(res.status).toBe(200);
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    const exchangeCall = fetchMock.mock.calls.find((c) => String(c[0]).includes('/oauth/access_token'));
+    expect(exchangeCall?.[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    expect(String((exchangeCall?.[1] as RequestInit | undefined)?.body)).toContain(
+      `redirect_uri=${encodeURIComponent('https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46#cb=test')}`,
+    );
     expect(urls.findIndex((u) => u.includes('/register'))).toBeLessThan(
       urls.findIndex((u) => u.includes('/waba-1/subscribed_apps')),
     );
     const row = upsertMock.mock.calls[0][0] as { config: Record<string, unknown> };
     expect(row.config.webhook_subscribed_at).toEqual(expect.any(String));
+  });
+
+  it('rejects a non-Meta redirect URI before exchanging the authorization code', async () => {
+    const fetchMock = mockGraph({ subscribeOk: true });
+    setupTables({ data: { id: 'int-1' }, error: null });
+
+    const res = await POST(req({ redirect_uri: 'https://attacker.example/x/connect/xd_arbiter/' }));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error.code).toBe('BAD_REQUEST');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://STATICXX.FACEBOOK.COM:443/x/connect/xd_arbiter/?version=46#cb=literal',
+    'https://web.facebook.com/x/connect/xd_arbiter/?version=46#cb=web',
+  ])('replays an allowed SDK redirect URI byte-for-byte: %s', async (redirectUri) => {
+    const fetchMock = mockGraph({ subscribeOk: true });
+    setupTables({ data: { id: 'int-1' }, error: null });
+
+    const res = await POST(req({ redirect_uri: redirectUri }));
+
+    expect(res.status).toBe(200);
+    const exchangeCall = fetchMock.mock.calls.find((call) => String(call[0]).includes('/oauth/access_token'));
+    const body = new URLSearchParams(String((exchangeCall?.[1] as RequestInit | undefined)?.body));
+    expect(body.get('redirect_uri')).toBe(redirectUri);
   });
 
   it('discovers the WABA and its sole phone number when v4 omits browser asset IDs', async () => {
