@@ -4,6 +4,7 @@ import type { BuyerHomeRecoResponse } from '@/lib/buyer-home-types';
 import { requireBuyerAccessProfile } from '@/lib/server/buyer-access';
 import { loadBuyerHomeReco, loadGuestHomeReco } from '@/lib/server/buyer-home-reco';
 import { BUYER_CACHE_PRICED } from '@/lib/server/buyer-cache-headers';
+import { jsonWithEtag } from '@/lib/server/buyer-etag';
 import { loadLivePublicCatalog } from '@/lib/server/public-catalog';
 import { supabaseAdmin } from '@/lib/supabase';
 
@@ -32,20 +33,20 @@ export async function GET(
         });
       }
       const payload = await loadGuestHomeReco(supabaseAdmin, profile.context.tenant_id);
-      return NextResponse.json(payload, { headers: BUYER_CACHE_PRICED });
+      return jsonWithEtag(request, payload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
     }
 
     if (!profile.buyer?.id) {
       if (profile.context.mode === 'guest') {
         const payload = await loadGuestHomeReco(supabaseAdmin, profile.context.tenant_id);
-        return NextResponse.json(payload, { headers: BUYER_CACHE_PRICED });
+        return jsonWithEtag(request, payload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
       }
       const previewPayload: BuyerHomeRecoResponse = {
         order_again_preview: [],
         bestsellers: [],
         preview_message: 'Preview mode — buyer-specific numbers show as 0.',
       };
-      return NextResponse.json(previewPayload, { headers: BUYER_CACHE_PRICED });
+      return jsonWithEtag(request, previewPayload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
     }
 
     const payload = await loadBuyerHomeReco(
@@ -54,7 +55,7 @@ export async function GET(
       profile.buyer.id,
     );
 
-    return NextResponse.json(payload, { headers: BUYER_CACHE_PRICED });
+    return jsonWithEtag(request, payload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
   } catch (error) {
     console.error('[GET /api/buyer/home/reco]', error);
     return NextResponse.json({ error: 'Failed to load buyer home reco' }, { status: 500 });

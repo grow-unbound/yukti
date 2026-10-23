@@ -44,12 +44,12 @@ describe('apiFetch guest twin routing', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`/api/public/g/products/p1?wh=${WH}`);
   });
 
-  it('keeps authenticated calls on the private route, with no-store for fresh', async () => {
+  it('keeps authenticated calls on the private route, revalidating (no-cache, ETag-friendly) for fresh', async () => {
     getTokenMock.mockReturnValue('jwt-token');
     await apiFetch('/api/buyer/catalog?limit=40', { fresh: true });
     const [target, init] = fetchMock.mock.calls[0];
     expect(target).toBe('/api/buyer/catalog?limit=40');
-    expect(init.cache).toBe('no-store');
+    expect(init.cache).toBe('no-cache');
     expect(init.headers.Authorization).toBe('Bearer jwt-token');
   });
 

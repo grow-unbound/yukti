@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { assembleBuyerCatalogItemsForProductIds } from '@/lib/server/buyer-assemble-catalog-items';
 import { requireBuyerAccessProfile } from '@/lib/server/buyer-access';
 import { BUYER_CACHE_PRICED } from '@/lib/server/buyer-cache-headers';
+import { jsonWithEtag } from '@/lib/server/buyer-etag';
 import { isCatalogApprovalRequiredForProfile, resolveBuyerProductScopeContext } from '@/lib/server/buyer-product-data';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { BuyerCatalogItem } from '@/types/buyer';
@@ -61,9 +62,7 @@ export async function GET(
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ item } satisfies BuyerProductDetailResponse, {
-      headers: BUYER_CACHE_PRICED,
-    });
+    return jsonWithEtag(request, { item } satisfies BuyerProductDetailResponse, BUYER_CACHE_PRICED) as NextResponse<BuyerProductDetailResponse>;
   } catch (error) {
     console.error('[GET /api/buyer/products/[id]]', error);
     return NextResponse.json({ error: 'Failed to load product' }, { status: 500 });
