@@ -179,6 +179,24 @@ Item format:
 - why: PRs #220/#223/#224/#225 fixed this surface by surface after a release showed ex-GST lines (invoice WYT/26-27/46568) and an inbox table (current price 3,150) disagreeing with its totals (stored 2,700); each surface had its own math.
 - cost: 1 bullet, path-scoped
 
+### 2026-10-23 claude/yukti-email-inbox-spec-a7931d — test an unapplied migration on dev without a push
+- [ ] target: .claude/rules/supabase-sql.md (Working against the hosted dev project)   change: add
+- text: `To test a migration before it is applied, concatenate BEGIN; + the migration file + a behavior-test file (DO blocks that RAISE EXCEPTION on failure, synthetic fixtures via pg_temp helpers) + ROLLBACK; and run it with supabase db query --linked --file. Nothing persists, the migration itself is exercised. See scripts/sql/run-email-inbox-p1-tests.sh.`
+- why: caught three SQL/fixture bugs on dev before any `db push` (this session: 17 scenarios, no persistent writes); the existing bullet only says to wrap "mutation-shaped validation".
+- cost: 1 bullet, path-scoped
+
+### 2026-10-23 claude/yukti-email-inbox-spec-a7931d — per-tenant PostHog flag targeting
+- [ ] target: docs/architecture.md (feature flags)   change: add
+- text: `Flags are evaluated per tenant id as the PostHog distinct_id (resolveTenantFlags -> evaluateFlags(tenantId); edge functions POST /decide with distinct_id=tenantId), no groups. To enable one tenant, add a person-property condition {key: distinct_id, type: person, operator: exact, value: [tenant_id]} (verified via /decide). New df_ flags default off: add them to DEFAULT_OFF_FLAGS in src/lib/server/tenant-flags-resolve.ts. The PostHog project is shared by dev and prod; never create a flag at 100%.`
+- why: creating df_email_inbox required finding this by experiment; existing df_whatsapp_inbox is a group flag (aggregation_group_type_index 0) that this evaluation path does not pass groups to, so copying its shape would silently evaluate false.
+- cost: 1 bullet, on-demand
+
+### 2026-10-23 claude/yukti-email-inbox-spec-a7931d — do not run pnpm in a worktree with a symlinked node_modules
+- [ ] target: CLAUDE.md (Workflow)   change: add (fold into the verify line, 0 net lines if shortened)
+- text: `Secondary git worktrees (baseline comparisons): run ./node_modules/.bin/vitest, never pnpm exec; pnpm's deps check tries to re-install and aborts with ERR_PNPM_UNSAFE_MODULES_DIR when node_modules is a symlink.`
+- why: `pnpm exec vitest` in a baseline worktree attempted `pnpm install` against the symlinked modules dir; refused only by pnpm's safety check (2 wasted turns).
+- cost: 1 line, always-loaded (reject if CLAUDE.md budget is tight)
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)

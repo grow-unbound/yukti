@@ -20,6 +20,7 @@ const EntryTypeSchema = z.enum([
   'invoice_overdue',
   'credit_limit_breach',
   'whatsapp_buyer_message',
+  'email_buyer_message',
 ]);
 
 const QuerySchema = z.object({
@@ -110,9 +111,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch entries' }, { status: 500 });
     }
 
-    const whatsappInboxEnabled = await getFlag(FEATURE_FLAGS.WHATSAPP_INBOX, claims.tenant_id);
+    const [whatsappInboxEnabled, emailInboxEnabled] = await Promise.all([
+      getFlag(FEATURE_FLAGS.WHATSAPP_INBOX, claims.tenant_id),
+      getFlag(FEATURE_FLAGS.EMAIL_INBOX, claims.tenant_id),
+    ]);
     const rows = ((data ?? []) as Array<{ id: string; priority_at: string; entry_type?: string } & Record<string, unknown>>)
-      .filter((row) => whatsappInboxEnabled || row.entry_type !== 'whatsapp_buyer_message');
+      .filter((row) => whatsappInboxEnabled || row.entry_type !== 'whatsapp_buyer_message')
+      .filter((row) => emailInboxEnabled || row.entry_type !== 'email_buyer_message');
     const entries = rows.slice(0, parsed.data.limit);
     const last = entries[entries.length - 1];
     const nextCursor = rows.length > parsed.data.limit && last

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useLinkWhatsAppBuyer, useWhatsAppBuyerCandidates } from '@/hooks/useWhatsAppBuyerLink';
+import { useLinkWhatsAppBuyer, useWhatsAppBuyerCandidates, type BuyerLinkChannel } from '@/hooks/useWhatsAppBuyerLink';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -23,9 +23,11 @@ function roleLabel(role: string | null): string | null {
 export function WhatsAppBuyerLinker({
   entryId,
   resolutionStatus,
+  channel = 'whatsapp',
 }: {
   entryId: string;
   resolutionStatus: 'ambiguous' | 'unknown';
+  channel?: BuyerLinkChannel;
 }) {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -34,8 +36,8 @@ export function WhatsAppBuyerLinker({
     return () => clearTimeout(timer);
   }, [search]);
 
-  const candidates = useWhatsAppBuyerCandidates(entryId, debounced, true);
-  const link = useLinkWhatsAppBuyer();
+  const candidates = useWhatsAppBuyerCandidates(entryId, debounced, true, channel);
+  const link = useLinkWhatsAppBuyer(channel);
 
   async function onLink(buyerId: string, name: string) {
     try {
@@ -53,12 +55,16 @@ export function WhatsAppBuyerLinker({
     <div className="space-y-3 rounded-[10px] border border-cream-200 bg-white p-3">
       <div>
         <p className="text-sm font-semibold text-cream-900">
-          {resolutionStatus === 'ambiguous' ? 'Which buyer is this?' : 'Link this number to a buyer'}
+          {resolutionStatus === 'ambiguous' ? 'Which buyer is this?' : channel === 'email' ? 'Link this sender to a buyer' : 'Link this number to a buyer'}
         </p>
         <p className="mt-0.5 text-xs text-cream-600">
-          {resolutionStatus === 'ambiguous'
-            ? 'This number matches more than one buyer. Pick the right one so the right context is shown.'
-            : "We don't recognise this number yet. Link it to an existing buyer, or just reply without linking."}
+          {channel === 'email'
+            ? resolutionStatus === 'ambiguous'
+              ? 'This sender could be more than one buyer. Pick the right one; future mail from this address will follow.'
+              : "We don't recognise this sender yet. Link it to an existing buyer so their mail shows against the right customer."
+            : resolutionStatus === 'ambiguous'
+              ? 'This number matches more than one buyer. Pick the right one so the right context is shown.'
+              : "We don't recognise this number yet. Link it to an existing buyer, or just reply without linking."}
         </p>
       </div>
 

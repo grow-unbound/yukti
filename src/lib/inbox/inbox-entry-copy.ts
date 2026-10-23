@@ -11,6 +11,7 @@ export const ENTRY_TYPE_LABEL: Record<InboxEntryType, string> = {
   invoice_overdue: 'Invoice overdue',
   credit_limit_breach: 'Over credit limit',
   whatsapp_buyer_message: 'WhatsApp message',
+  email_buyer_message: 'Email',
 };
 
 /** Approval entry raised by an existing buyer (app access disabled) tapping "Request access". */
@@ -190,6 +191,10 @@ export function buildListSupportingLine(entries: InboxEntry[]): string {
   if (primary.entry_type === 'whatsapp_buyer_message') {
     const text = typeof primary.metadata.last_inbound_text === 'string' ? primary.metadata.last_inbound_text.trim() : '';
     return text || 'Buyer message';
+  }
+  if (primary.entry_type === 'email_buyer_message') {
+    const subject = typeof primary.metadata.subject === 'string' ? primary.metadata.subject.trim() : '';
+    return ['Email', subject].filter(Boolean).join(' · ');
   }
   if (primary.entry_type === 'invoice_due' || primary.entry_type === 'invoice_overdue') {
     return [buildEntryAmountLabel(primary), ageLabel(primary)].filter(Boolean).join(' · ');
