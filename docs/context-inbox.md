@@ -15,6 +15,18 @@ Item format:
 
 ## Pending
 
+### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — Supabase "Cached Egress" is 0 by design; egress = PostgREST payload bytes
+- [ ] target: MEMORY.md   change: add
+- text: Free-plan egress alarms: Cached Egress stays 0 because every PostgREST/RPC reply is `cf_cache_status: DYNAMIC` (service-role POSTs from Vercel; only Storage CDN is cacheable, images are on R2). The lever is bytes per call: one `load_products_scoped(limit 40)` page is ~56-60 KB (~1.5 KB/row, mostly JSON keys + r2 key columns); `.rpc().select(cols)` trims only ~7%. Bigger wins need per-row dedupe (brand/category/family fields) or fewer/smaller pages.
+- why: Oct 23 review (4.67/5 GB; edge logs have no response size, measured with `to_jsonb(row)` byte SELECT on prod).
+- cost: 1 line, always-loaded
+
+### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — buyer-path RPC/table reads: cache whole small sets, not per-page filters
+- [ ] target: .claude/rules/data-fetching.md   change: add
+- text: under "Caching": "Per-page `WHERE id IN (page ids)` reads of small tenant-wide sets (campaign_items: 12 campaigns, ~940 rows) become one query shape per page. Cache the whole set per (tenant, parent id) with `unstable_cache` + the buyer-context tag and filter in memory (`src/lib/server/campaign-items-cache.ts`)."
+- why: Oct 23 edge-log shape query: campaign_items ~380 calls / 30 min in 4 shapes, all page-id filters.
+- cost: 1 line, path-scoped
+
 ### 2026-10-17 perf/buyer-profile-slim — specs/ and docs/incidents/ are gitignored; say so
 - [ ] target: CLAUDE.md ("Where to look" table)   change: edit
 - text: append to the `specs/INDEX.md` row: "(`specs/` and `docs/incidents/` are gitignored in this public repo: new specs/logs stay local, don't `git add` them)"

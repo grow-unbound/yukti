@@ -58,6 +58,7 @@ export async function resolveAuthoritativePrices(
         params.tenantId,
         [campaignId],
         items.map((item) => item.tenant_product_id),
+        { fresh: true },
       );
       for (const row of campaignItemRows) {
         const override = campaignOverridePrice(row.price_override);

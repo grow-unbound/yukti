@@ -21,6 +21,7 @@ function dbWith(rowsByCampaign: Record<string, unknown[]>) {
           select: () => query,
           eq: (_col: string, id: string) => { campaignId = id; eq(id); return query; },
           is: () => query,
+          in: (col: string, ids: string[]) => { if (col === 'campaign_id') campaignId = ids[0]; return query; },
           limit: (n: number) => { limit(n); return query; },
           then: (resolve: (v: unknown) => void) => resolve({ data: rowsByCampaign[campaignId] ?? [], error: null }),
         };
@@ -54,5 +55,15 @@ describe('campaign items cache', () => {
 
     expect(rows.map((r) => `${r.campaign_id}:${r.tenant_product_id}`).sort()).toEqual(['c1:p2', 'c2:p2']);
     expect(eq.mock.calls.map((c) => c[0]).sort()).toEqual(['c1', 'c2']);
+  });
+
+  it('reads straight from the DB, bypassing the cache, for authoritative pricing', async () => {
+    const before = cacheCalls.length;
+    const { db, eq } = dbWith({ c1: [item('c1', 'p1')] });
+    const rows = await getCampaignItemsForProducts(db, 'tenant-a', ['c1'], ['p1'], { fresh: true });
+
+    expect(rows).toHaveLength(1);
+    expect(cacheCalls.length).toBe(before);
+    expect(eq).not.toHaveBeenCalled(); // direct IN-query, not the per-campaign cached read
   });
 });
