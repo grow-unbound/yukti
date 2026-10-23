@@ -20,20 +20,29 @@ export interface BuyerResolvedRouting {
 // `tenant-settings:<tenant>` tag; warehouse edits wait out the TTL. `db` must be the service-role client.
 const ROUTING_INPUTS_REVALIDATE_SECONDS = 60;
 
-function cachedPerTenant<T>(name: string, tenantId: string, load: () => Promise<T>): Promise<T> {
-  return unstable_cache(load, ['buyer-routing', name, tenantId], {
-    revalidate: ROUTING_INPUTS_REVALIDATE_SECONDS,
-    tags: [`tenant-settings:${tenantId}`],
-  })();
+// A failed read throws inside the cached loader (unstable_cache never stores a throw), and the caller
+// falls back to the same default the code always used - a transient DB error is never cached for the TTL.
+async function cachedPerTenant<T>(name: string, tenantId: string, load: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await unstable_cache(load, ['buyer-routing', name, tenantId], {
+      revalidate: ROUTING_INPUTS_REVALIDATE_SECONDS,
+      tags: [`tenant-settings:${tenantId}`],
+    })();
+  } catch (error) {
+    console.error(`[buyer-routing] ${name} read failed`, error);
+    return fallback;
+  }
 }
 
 async function fetchTenantRoutingThreshold(db: SupabaseClient, tenantId: string): Promise<number> {
-  const { data: settingsRow } = await (db as any)
+  const { data: settingsRow, error } = await (db as any)
     .schema('app')
     .from('tenant_settings')
     .select('settings')
     .eq('tenant_id', tenantId)
     .single();
+  // PGRST116 = no settings row yet: not an error, the default threshold applies.
+  if (error && error.code !== 'PGRST116') throw new Error(error.message);
 
   return typeof settingsRow?.settings?.delivery_routing_threshold_km === 'number'
     ? settingsRow.settings.delivery_routing_threshold_km
@@ -41,7 +50,7 @@ async function fetchTenantRoutingThreshold(db: SupabaseClient, tenantId: string)
 }
 
 async function fetchWarehouseLocations(db: SupabaseClient, tenantId: string) {
-  const { data: warehouses } = await (db as any)
+  const { data: warehouses, error } = await (db as any)
     .schema('app')
     .from('warehouses')
     .select('id, name, lat, lng, is_default, location_id, locations(id, name)')
@@ -49,6 +58,7 @@ async function fetchWarehouseLocations(db: SupabaseClient, tenantId: string) {
     .is('deleted_at', null)
     .not('lat', 'is', null)
     .not('lng', 'is', null);
+  if (error) throw new Error(error.message);
 
   return (warehouses ?? []) as Array<{
     id: string;
@@ -62,7 +72,7 @@ async function fetchWarehouseLocations(db: SupabaseClient, tenantId: string) {
 }
 
 async function fetchDefaultLocation(db: SupabaseClient, tenantId: string) {
-  const { data: defaultLocs } = await (db as any)
+  const { data: defaultLocs, error } = await (db as any)
     .schema('app')
     .from('locations')
     .select('id, name')
@@ -70,12 +80,13 @@ async function fetchDefaultLocation(db: SupabaseClient, tenantId: string) {
     .eq('is_default', true)
     .is('deleted_at', null)
     .limit(1);
+  if (error) throw new Error(error.message);
 
   return (defaultLocs as Array<{ id: string; name: string }> | null)?.[0] ?? null;
 }
 
 async function fetchDefaultWarehouse(db: SupabaseClient, tenantId: string) {
-  const { data: defaultWarehouses } = await (db as any)
+  const { data: defaultWarehouses, error } = await (db as any)
     .schema('app')
     .from('warehouses')
     .select('id, name, location_id, locations(id, name)')
@@ -83,6 +94,7 @@ async function fetchDefaultWarehouse(db: SupabaseClient, tenantId: string) {
     .eq('is_default', true)
     .is('deleted_at', null)
     .limit(1);
+  if (error) throw new Error(error.message);
 
   return (defaultWarehouses as Array<{
     id: string;
@@ -93,13 +105,13 @@ async function fetchDefaultWarehouse(db: SupabaseClient, tenantId: string) {
 }
 
 const loadTenantRoutingThreshold = (db: SupabaseClient, tenantId: string) =>
-  cachedPerTenant('threshold', tenantId, () => fetchTenantRoutingThreshold(db, tenantId));
+  cachedPerTenant('threshold', tenantId, () => fetchTenantRoutingThreshold(db, tenantId), 50);
 const loadWarehouseLocations = (db: SupabaseClient, tenantId: string) =>
-  cachedPerTenant('warehouses', tenantId, () => fetchWarehouseLocations(db, tenantId));
+  cachedPerTenant('warehouses', tenantId, () => fetchWarehouseLocations(db, tenantId), []);
 const loadDefaultLocation = (db: SupabaseClient, tenantId: string) =>
-  cachedPerTenant('default-location', tenantId, () => fetchDefaultLocation(db, tenantId));
+  cachedPerTenant('default-location', tenantId, () => fetchDefaultLocation(db, tenantId), null);
 const loadDefaultWarehouse = (db: SupabaseClient, tenantId: string) =>
-  cachedPerTenant('default-warehouse', tenantId, () => fetchDefaultWarehouse(db, tenantId));
+  cachedPerTenant('default-warehouse', tenantId, () => fetchDefaultWarehouse(db, tenantId), null);
 
 export async function resolveNearestBuyerLocation(
   db: SupabaseClient,

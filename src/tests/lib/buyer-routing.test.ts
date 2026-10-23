@@ -145,4 +145,18 @@ describe('routing inputs are cached per tenant', () => {
     expect(calls.every((c) => c.tags?.[0] === 'tenant-settings:tenant-9' && c.revalidate === 60)).toBe(true);
     vi.doUnmock('next/cache');
   });
+
+  it('falls back to the 50 km default instead of throwing (or caching) when the settings read fails', async () => {
+    const db = createDb({}, [{ id: 'w1', name: 'Near', lat: 0, lng: 0, is_default: true, location_id: null }], []);
+    const failing = {
+      schema: () => ({
+        from: (table: string) => table === 'tenant_settings'
+          ? { select: () => ({ eq: () => ({ single: async () => ({ data: null, error: { code: '57014', message: 'timeout' } }) }) }) }
+          : (db.schema() as any).from(table),
+      }),
+    };
+    const resolved = await resolveNearestBuyerLocation(failing as never, 'tenant-err', { lat: 0, lng: 0 });
+    expect(resolved?.warehouseId).toBe('w1');
+  });
 });
+

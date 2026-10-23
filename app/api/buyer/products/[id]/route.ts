@@ -62,7 +62,7 @@ export async function GET(
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    return jsonWithEtag(request, { item } satisfies BuyerProductDetailResponse, BUYER_CACHE_PRICED) as NextResponse<BuyerProductDetailResponse>;
+    return jsonWithEtag(request, { item } satisfies BuyerProductDetailResponse, BUYER_CACHE_PRICED);
   } catch (error) {
     console.error('[GET /api/buyer/products/[id]]', error);
     return NextResponse.json({ error: 'Failed to load product' }, { status: 500 });

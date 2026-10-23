@@ -33,20 +33,20 @@ export async function GET(
         });
       }
       const payload = await loadGuestHomeReco(supabaseAdmin, profile.context.tenant_id);
-      return jsonWithEtag(request, payload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
+      return jsonWithEtag(request, payload, BUYER_CACHE_PRICED);
     }
 
     if (!profile.buyer?.id) {
       if (profile.context.mode === 'guest') {
         const payload = await loadGuestHomeReco(supabaseAdmin, profile.context.tenant_id);
-        return jsonWithEtag(request, payload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
+        return jsonWithEtag(request, payload, BUYER_CACHE_PRICED);
       }
       const previewPayload: BuyerHomeRecoResponse = {
         order_again_preview: [],
         bestsellers: [],
         preview_message: 'Preview mode — buyer-specific numbers show as 0.',
       };
-      return jsonWithEtag(request, previewPayload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
+      return jsonWithEtag(request, previewPayload, BUYER_CACHE_PRICED);
     }
 
     const payload = await loadBuyerHomeReco(
@@ -55,7 +55,7 @@ export async function GET(
       profile.buyer.id,
     );
 
-    return jsonWithEtag(request, payload, BUYER_CACHE_PRICED) as NextResponse<BuyerHomeRecoResponse>;
+    return jsonWithEtag(request, payload, BUYER_CACHE_PRICED);
   } catch (error) {
     console.error('[GET /api/buyer/home/reco]', error);
     return NextResponse.json({ error: 'Failed to load buyer home reco' }, { status: 500 });

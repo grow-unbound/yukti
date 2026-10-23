@@ -22,19 +22,19 @@ function matchesIfNoneMatch(header: string | null, etag: string): boolean {
   return header.split(',').some((candidate) => weak(candidate) === wanted);
 }
 
-export function jsonWithEtag(
+export function jsonWithEtag<T>(
   request: NextRequest,
-  body: unknown,
+  body: T,
   headers: Record<string, string>,
-): NextResponse {
+): NextResponse<T> {
   const payload = JSON.stringify(body);
   const etag = etagFor(payload);
   const responseHeaders = { ...headers, ETag: etag, Vary: 'Authorization, Cookie' };
 
   if (request.method === 'GET' && matchesIfNoneMatch(request.headers.get('if-none-match'), etag)) {
-    return new NextResponse(null, { status: 304, headers: responseHeaders });
+    return new NextResponse(null, { status: 304, headers: responseHeaders }) as NextResponse<T>;
   }
-  return new NextResponse(payload, {
+  return new NextResponse<T>(payload, {
     status: 200,
     headers: { ...responseHeaders, 'Content-Type': 'application/json' },
   });
