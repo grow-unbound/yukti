@@ -197,6 +197,18 @@ Item format:
 - why: local `develop` was 117 commits behind `origin/develop`, initially making already-merged work look like dozens of pending commits; stale stacked WhatsApp branches also had different hashes for functionality already merged through PR #204.
 - cost: 1-2 lines, always-loaded
 
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — Embedded Signup cannot depend on browser asset IDs
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta retired WhatsApp Embedded Signup v2/v3 on 2026-10-15. Yukti launches the Facebook Login for Business configuration without sessionInfoVersion and treats browser waba_id/phone_number_id as optional hints: after exchanging the OAuth code, the server resolves granted WABAs from debug_token granular scopes and phone numbers from /{waba_id}/phone_numbers. Never silently choose when multiple phones are available.`
+- why: the live app returned a valid OAuth code after Meta confirmation but no usable WA_EMBEDDED_SIGNUP asset event, reproducing “WhatsApp did not return a business account or phone number”; requiring both IDs client-side blocked onboarding even though Graph authorization succeeded.
+- cost: 2-3 lines, on-demand MEMORY.md
+
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — FB.login codes are bound to the SDK popup callback
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta FB.login popup authorization codes are bound to the SDK-generated redirect_uri (currently the dynamic https://staticxx.facebook.com/x/connect/xd_arbiter/ callback, including its fragment). Capture that exact value from the OAuth popup URL and send it in the server-side code exchange; the app page URL, an omitted redirect_uri, or a reconstructed callback produces OAuth subcode 36008. Strictly allowlist the Meta callback host/path before exchange.`
+- why: app.yukti.so reached the PIN step but the live develop callback failed at /oauth/access_token with Meta subcode 36008; the deployed app-ID/secret pair independently validated, and Meta's current debug SDK shows permission_oauth_transform replacing redirect_uri with UIServer.xdHandler.
+- cost: 2-3 lines, on-demand MEMORY.md
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
