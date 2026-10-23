@@ -209,6 +209,12 @@ Item format:
 - why: app.yukti.so reached the PIN step but the live develop callback failed at /oauth/access_token with Meta subcode 36008; the deployed app-ID/secret pair independently validated, and Meta's current debug SDK shows permission_oauth_transform replacing redirect_uri with UIServer.xdHandler.
 - cost: 2-3 lines, on-demand MEMORY.md
 
+### 2026-10-23 codex/fix-whatsapp-oauth-redirect — server-side tenant flags require PostHog group context
+- [ ] target: docs/architecture.md (feature flags)   change: add
+- text: `Server-side evaluations of tenant-targeted PostHog flags must pass both the stable tenant distinct ID and the group context \`groups: { tenant: tenantId }\`, matching the browser's \`posthog.group('tenant', tenantId)\`. A 100% tenant rollout still evaluates false with \`no_group_type\` when the group context is omitted.`
+- why: `supabase/functions/whatsapp-inbound-webhook/index.ts` passed only `distinct_id`, causing valid MobileHub inbound messages to be skipped as `feature_disabled`; the same live evaluation changed from `no_group_type`/false to `condition_match`/true when the tenant group was supplied.
+- cost: 1-2 lines, on-demand architecture.md
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)

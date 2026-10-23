@@ -140,6 +140,7 @@ const STATUS_ORDER: Record<'sent' | 'delivered' | 'read' | 'failed', number> = {
 };
 
 const WHATSAPP_INBOX_FLAG = 'df_whatsapp_inbox';
+const POSTHOG_TENANT_GROUP_TYPE = 'tenant';
 
 async function resolveTenantIdForPhoneNumberId(
   admin: ReturnType<typeof createAdminClient>,
@@ -183,10 +184,20 @@ async function resolveTenantIdForPhoneNumberId(
 async function isWhatsAppInboxFlagEnabled(tenantId: string | null): Promise<boolean> {
   if (!tenantId) return false;
 
-  const key = Deno.env.get('NEXT_PUBLIC_POSTHOG_KEY')?.trim();
-  if (!key) return false;
+  const key = (
+    Deno.env.get('POSTHOG_PROJECT_API_KEY')
+    ?? Deno.env.get('NEXT_PUBLIC_POSTHOG_KEY')
+  )?.trim();
+  if (!key) {
+    console.error('[whatsapp-inbound-webhook] PostHog project key not configured — disabling inbox processing');
+    return false;
+  }
 
-  const host = (Deno.env.get('NEXT_PUBLIC_POSTHOG_HOST')?.trim() || 'https://us.i.posthog.com').replace(/\/$/, '');
+  const host = (
+    Deno.env.get('NEXT_PUBLIC_POSTHOG_HOST')?.trim()
+    || Deno.env.get('POSTHOG_HOST')?.trim()
+    || 'https://us.i.posthog.com'
+  ).replace(/\/$/, '');
   try {
     const response = await fetch(`${host}/decide/?v=3`, {
       method: 'POST',
@@ -194,6 +205,7 @@ async function isWhatsAppInboxFlagEnabled(tenantId: string | null): Promise<bool
       body: JSON.stringify({
         api_key: key,
         distinct_id: tenantId,
+        groups: { [POSTHOG_TENANT_GROUP_TYPE]: tenantId },
       }),
     });
     if (!response.ok) {

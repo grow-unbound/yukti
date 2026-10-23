@@ -23,6 +23,9 @@ describe('WhatsApp inbox P0 migration and webhook contract', () => {
 
   it('keeps inbound processing behind the tenant-scoped PostHog flag and platform fallback', () => {
     expect(webhook).toContain("const WHATSAPP_INBOX_FLAG = 'df_whatsapp_inbox'");
+    expect(webhook).toContain("const POSTHOG_TENANT_GROUP_TYPE = 'tenant'");
+    expect(webhook).toContain("Deno.env.get('POSTHOG_PROJECT_API_KEY')");
+    expect(webhook).toContain('groups: { [POSTHOG_TENANT_GROUP_TYPE]: tenantId }');
     expect(webhook).toContain("Deno.env.get('WHATSAPP_PLATFORM_TENANT_ID')");
     expect(webhook).toContain("Deno.env.get('WHATSAPP_PLATFORM_PHONE_NUMBER_ID')");
     expect(webhook).toContain("rpc('process_whatsapp_inbound_message'");
