@@ -39,6 +39,7 @@ interface WhatsAppSignupResult {
   wabaId: string;
   phoneNumberId: string;
   businessId: string | null;
+  redirectUri: string | null;
 }
 
 const FACEBOOK_MESSAGE_ORIGINS = new Set([
@@ -205,6 +206,7 @@ export function WhatsAppEmbeddedSignupDialog({
             wabaId: typeof waba_id === 'string' ? waba_id : soleWabaId,
             phoneNumberId: phone_number_id ?? '',
             businessId: business_id ?? businessId ?? null,
+            redirectUri: signupResultRef.current?.redirectUri ?? null,
           };
           advanceWhenAuthorized();
         }
@@ -219,29 +221,55 @@ export function WhatsAppEmbeddedSignupDialog({
       failAttempt('Facebook login did not complete. Check that pop-ups are allowed, then try again.');
     }, SIGNUP_ATTEMPT_TIMEOUT_MS);
 
-    window.FB?.login(
-      (response) => {
-        if (!isCurrentAttempt()) return;
-        const code = response.authResponse?.code;
-        if (!code) {
-          failAttempt('Facebook did not return an authorization code. Please try again.');
-          return;
+    // For popup login the Meta SDK replaces redirect_uri with its dynamic
+    // xd_arbiter callback. The authorization code is bound to that exact URI,
+    // so capture it from the OAuth URL and send it with the server exchange.
+    let loginRedirectUri: string | null = null;
+    const originalOpen = window.open;
+    window.open = function open(url?: string | URL, target?: string, features?: string) {
+      try {
+        const oauthUrl = new URL(url?.toString() ?? '', window.location.href);
+        if (oauthUrl.hostname === 'www.facebook.com' || oauthUrl.hostname === 'web.facebook.com') {
+          loginRedirectUri = oauthUrl.searchParams.get('redirect_uri');
         }
-        signupResultRef.current = {
-          code,
-          wabaId: signupResultRef.current?.wabaId ?? '',
-          phoneNumberId: signupResultRef.current?.phoneNumberId ?? '',
-          businessId: signupResultRef.current?.businessId ?? null,
-        };
-        advanceWhenAuthorized();
-      },
-      {
-        config_id: configId,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: { setup: {} },
-      },
-    );
+      } catch {
+        // Let the SDK open the popup even if its URL shape changes.
+      }
+      return originalOpen.call(window, url, target, features);
+    };
+
+    try {
+      window.FB?.login(
+        (response) => {
+          if (!isCurrentAttempt()) return;
+          const code = response.authResponse?.code;
+          if (!code) {
+            failAttempt('Facebook did not return an authorization code. Please try again.');
+            return;
+          }
+          if (!loginRedirectUri) {
+            failAttempt('Facebook did not provide a verifiable OAuth callback. Refresh the page and try again.');
+            return;
+          }
+          signupResultRef.current = {
+            code,
+            wabaId: signupResultRef.current?.wabaId ?? '',
+            phoneNumberId: signupResultRef.current?.phoneNumberId ?? '',
+            businessId: signupResultRef.current?.businessId ?? null,
+            redirectUri: loginRedirectUri,
+          };
+          advanceWhenAuthorized();
+        },
+        {
+          config_id: configId,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: { setup: {} },
+        },
+      );
+    } finally {
+      window.open = originalOpen;
+    }
   }
 
   async function submitPinAndConnect() {
@@ -265,6 +293,7 @@ export function WhatsAppEmbeddedSignupDialog({
         waba_id: result.wabaId,
         phone_number_id: result.phoneNumberId,
         business_id: result.businessId,
+        redirect_uri: result.redirectUri,
         pin,
       });
       const json = await res.json();

@@ -10,14 +10,49 @@ function jsonError(status: number, message: string, code = 'ERROR') {
   return NextResponse.json({ data: null, error: { code, message } }, { status });
 }
 
-async function exchangeCodeForAccessToken(code: string): Promise<{ access_token?: string; error?: { message?: string } }> {
+async function exchangeCodeForAccessToken(code: string, redirectUri: string | null): Promise<{ access_token?: string; error?: { message?: string } }> {
   const params = new URLSearchParams({
     client_id: process.env.META_APP_ID ?? '',
     client_secret: process.env.WHATSAPP_APP_SECRET ?? '',
     code,
+    grant_type: 'authorization_code',
   });
-  const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/oauth/access_token?${params.toString()}`);
+  if (redirectUri) params.set('redirect_uri', redirectUri);
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params,
+  });
   return response.json();
+}
+
+function parseMetaSdkRedirectUri(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || value.length > 4096) throw new Error('Invalid Meta OAuth redirect URI');
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Invalid Meta OAuth redirect URI');
+  }
+  const allowedHost = [
+    'staticxx.facebook.com',
+    'www.facebook.com',
+    'web.facebook.com',
+  ].includes(url.hostname);
+  if (
+    url.protocol !== 'https:'
+    || !allowedHost
+    || url.pathname !== '/x/connect/xd_arbiter/'
+    || url.username
+    || url.password
+  ) {
+    throw new Error('Invalid Meta OAuth redirect URI');
+  }
+  // OAuth code validation is byte-sensitive. Use URL only for validation and
+  // replay the exact literal captured from the SDK popup without canonicalizing.
+  return value;
 }
 
 async function registerPhoneNumber(phoneNumberId: string, accessToken: string, pin: string): Promise<{ success?: boolean; error?: { message?: string } }> {
@@ -171,6 +206,12 @@ export async function POST(request: NextRequest) {
     const phoneNumberIdHint = typeof body?.phone_number_id === 'string' && body.phone_number_id ? body.phone_number_id : null;
     const businessId = typeof body?.business_id === 'string' ? body.business_id : null;
     const pin = typeof body?.pin === 'string' ? body.pin : null;
+    let redirectUri: string | null;
+    try {
+      redirectUri = parseMetaSdkRedirectUri(body?.redirect_uri);
+    } catch (error) {
+      return jsonError(400, error instanceof Error ? error.message : 'Invalid Meta OAuth redirect URI', 'BAD_REQUEST');
+    }
 
     if (!code || !pin) {
       return jsonError(400, 'code and pin are required', 'BAD_REQUEST');
@@ -182,7 +223,7 @@ export async function POST(request: NextRequest) {
     const db = supabaseAdmin;
     if (!db) return jsonError(500, 'Server configuration error', 'SERVER_ERROR');
 
-    const tokenResponse = await exchangeCodeForAccessToken(code);
+    const tokenResponse = await exchangeCodeForAccessToken(code, redirectUri);
     if (!tokenResponse.access_token) {
       console.error('[whatsapp/oauth/callback] Token exchange failed:', tokenResponse.error);
       return jsonError(502, tokenResponse.error?.message ?? 'Failed to exchange authorization code with Meta', 'TOKEN_EXCHANGE_FAILED');
