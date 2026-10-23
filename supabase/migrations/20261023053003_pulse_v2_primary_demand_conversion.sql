@@ -3,9 +3,9 @@
 --
 -- 1. Demand captured follows the tenant's primary document kind. Summing both
 --    estimates and their converted orders double-counts the same demand.
--- 2. Estimate-led tenants derive the attributed conversion card from converted
---    buyer-app estimates. Historical converted invoices did not always carry
---    is_buyer_app_invoice, so the invoice flag alone understates attribution.
+-- 2. Attributed and total invoiced values use the same invoice-date window.
+--    Historical converted invoices did not always carry is_buyer_app_invoice,
+--    so linked buyer-app invoices are backfilled below.
 
 CREATE OR REPLACE FUNCTION app._pulse_window_metrics(
   p_tenant_id uuid,
@@ -50,6 +50,7 @@ AS $function$
       AND app.metric_day_ist(i.invoice_date, i.created_at) < p_to_excl
   )
   SELECT jsonb_build_object(
+    'primary_demand_kind', settings.primary_kind,
     'demand_value', CASE settings.primary_kind
       WHEN 'estimates' THEN COALESCE((SELECT sum(total_amount) FROM est), 0)
       WHEN 'orders' THEN COALESCE((SELECT sum(total_amount) FROM ord), 0)
@@ -73,18 +74,9 @@ AS $function$
     ),
     'median_quote', (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY total_amount) FROM est),
     'avg_lines', (SELECT avg(item_count) FROM est),
-    'app_invoiced_value', CASE settings.primary_kind
-      WHEN 'estimates' THEN COALESCE((SELECT sum(total_amount) FROM est WHERE status IN ('invoiced', 'converted')), 0)
-      ELSE COALESCE((SELECT sum(total_amount) FROM inv WHERE is_app), 0)
-    END,
-    'app_invoiced_docs', CASE settings.primary_kind
-      WHEN 'estimates' THEN (SELECT count(*) FROM est WHERE status IN ('invoiced', 'converted'))
-      ELSE (SELECT count(*) FROM inv WHERE is_app)
-    END,
-    'app_invoiced_buyers', CASE settings.primary_kind
-      WHEN 'estimates' THEN (SELECT count(DISTINCT buyer_id) FROM est WHERE status IN ('invoiced', 'converted'))
-      ELSE (SELECT count(DISTINCT buyer_id) FROM inv WHERE is_app)
-    END,
+    'app_invoiced_value', COALESCE((SELECT sum(total_amount) FROM inv WHERE is_app), 0),
+    'app_invoiced_docs', (SELECT count(*) FROM inv WHERE is_app),
+    'app_invoiced_buyers', (SELECT count(DISTINCT buyer_id) FROM inv WHERE is_app),
     'total_invoiced_value', COALESCE((SELECT sum(total_amount) FROM inv), 0),
     'total_invoiced_docs', (SELECT count(*) FROM inv),
     'engaged_buyers', (
@@ -129,4 +121,4 @@ WHERE i.deleted_at IS NULL
   );
 
 COMMENT ON FUNCTION app._pulse_window_metrics(uuid, date, date) IS
-  'Pulse v2 headline metrics for one window. Demand follows the tenant primary document kind; estimate-led attribution uses converted buyer-app estimates.';
+  'Pulse v2 headline metrics for one window. Demand follows the tenant primary document kind; invoiced attribution and totals share the invoice-date window.';

@@ -179,6 +179,12 @@ Item format:
 - why: PRs #220/#223/#224/#225 fixed this surface by surface after a release showed ex-GST lines (invoice WYT/26-27/46568) and an inbox table (current price 3,150) disagreeing with its totals (stored 2,700); each surface had its own math.
 - cost: 1 bullet, path-scoped
 
+### 2026-10-23 codex/fix-whatsapp-embedded-signup — branch sweeps must use the fetched remote base
+- [ ] target: CLAUDE.md (Workflow)   change: add
+- text: `For an unmerged-branch sweep, fetch/prune first and compare every local/remote topic branch against the fetched PR base (for example origin/develop), never a possibly stale local develop. Use patch-equivalence (--cherry-pick / range-diff), not ancestry alone, because squash/rebase and stacked branches otherwise look missing; reconcile obsolete branch history only after verifying the current tree contains or supersedes its behavior.`
+- why: local `develop` was 117 commits behind `origin/develop`, initially making already-merged work look like dozens of pending commits; stale stacked WhatsApp branches also had different hashes for functionality already merged through PR #204.
+- cost: 1-2 lines, always-loaded
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)

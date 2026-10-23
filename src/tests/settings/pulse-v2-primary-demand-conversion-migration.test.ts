@@ -10,15 +10,17 @@ const sql = readFileSync(
 describe('Pulse v2 primary demand and conversion migration', () => {
   it('selects exactly one primary demand document kind', () => {
     expect(sql).toContain('app.metrics_v4_primary_demand_kind(p_tenant_id)');
+    expect(sql).toContain("'primary_demand_kind', settings.primary_kind");
     expect(sql).toMatch(/'demand_value', CASE settings\.primary_kind/);
     expect(sql).toMatch(/WHEN 'estimates' THEN COALESCE\(\(SELECT sum\(total_amount\) FROM est\)/);
     expect(sql).toMatch(/WHEN 'orders' THEN COALESCE\(\(SELECT sum\(total_amount\) FROM ord\)/);
     expect(sql).not.toContain("COALESCE((SELECT sum(total_amount) FROM est), 0) + COALESCE((SELECT sum(total_amount) FROM ord), 0)");
   });
 
-  it('uses converted estimates for estimate-led attribution', () => {
-    expect(sql).toMatch(/'app_invoiced_value', CASE settings\.primary_kind/);
-    expect(sql).toContain("FROM est WHERE status IN ('invoiced', 'converted')");
+  it('uses the same invoice-date cohort for attributed and total invoiced values', () => {
+    expect(sql).toContain("'app_invoiced_value', COALESCE((SELECT sum(total_amount) FROM inv WHERE is_app), 0)");
+    expect(sql).toContain("'total_invoiced_value', COALESCE((SELECT sum(total_amount) FROM inv), 0)");
+    expect(sql).not.toMatch(/'app_invoiced_value', CASE settings\.primary_kind/);
   });
 
   it('backfills invoice attribution only through existing buyer-app links', () => {
