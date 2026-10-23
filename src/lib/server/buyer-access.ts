@@ -1004,17 +1004,13 @@ export async function mintBuyerSession(
   };
 }
 
-/**
- * Fire-and-forget login stamp. last_active_at moves with it because a login is activity; the daily
- * PostHog sync later raises last_active_at with browsing/cart/quote events (never lowers either).
- */
+/** Fire-and-forget login stamp shared by both buyer-session issuance paths. */
 function stampBuyerLastLogin(buyerId: string | null | undefined, source: string): void {
   if (!supabaseAdmin || !buyerId) return;
-  const now = new Date().toISOString();
   void supabaseAdmin
     .schema('app')
     .from('buyers')
-    .update({ last_login_at: now, last_active_at: now })
+    .update({ last_login_at: new Date().toISOString() })
     .eq('id', buyerId)
     .then(({ error }) => {
       if (error) console.error(`[${source}] failed to stamp last_login_at`, error);
