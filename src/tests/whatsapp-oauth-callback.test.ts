@@ -80,6 +80,8 @@ function setupTables(upsertResult: { data: unknown; error: unknown }) {
 describe('POST /api/settings/integrations/whatsapp/oauth/callback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.WHATSAPP_WEBHOOK_CALLBACK_URL;
+    delete process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
     process.env.META_APP_ID = 'app';
     process.env.WHATSAPP_APP_SECRET = 'secret';
     getVerifiedClaimsMock.mockResolvedValue({ tenant_id: 't-1', sub: 'u-1', role: 'seller_admin' });
@@ -128,6 +130,11 @@ describe('POST /api/settings/integrations/whatsapp/oauth/callback', () => {
 });
 
 describe('subscribeWabaToApp', () => {
+  beforeEach(() => {
+    delete process.env.WHATSAPP_WEBHOOK_CALLBACK_URL;
+    delete process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+  });
+
   it('returns Meta error message on failure and never throws on network error', async () => {
     const bad = vi.fn().mockResolvedValue(metaResponse({ error: { message: 'nope' } }, false));
     await expect(subscribeWabaToApp('w', 't', bad as unknown as typeof fetch)).resolves.toEqual({
@@ -139,6 +146,65 @@ describe('subscribeWabaToApp', () => {
       ok: false,
       message: 'network down',
     });
+  });
+
+  it('uses the app-level webhook when no callback override is configured', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(metaResponse({ success: true }));
+
+    await expect(subscribeWabaToApp('waba', 'token', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ok: true });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/waba/subscribed_apps'),
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer token' },
+      },
+    );
+  });
+
+  it('overrides the callback for a WABA when the environment provides a dev webhook', async () => {
+    process.env.WHATSAPP_WEBHOOK_CALLBACK_URL = 'https://dev.example.test/functions/v1/whatsapp-inbound-webhook';
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = 'dev-verify-token';
+    const fetchMock = vi.fn().mockResolvedValue(metaResponse({ success: true }));
+
+    await expect(subscribeWabaToApp('waba', 'token', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ok: true });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/waba/subscribed_apps'),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          override_callback_uri: 'https://dev.example.test/functions/v1/whatsapp-inbound-webhook',
+          verify_token: 'dev-verify-token',
+        }),
+      },
+    );
+  });
+
+  it('fails closed when a callback override is missing its verification token', async () => {
+    process.env.WHATSAPP_WEBHOOK_CALLBACK_URL = 'https://dev.example.test/functions/v1/whatsapp-inbound-webhook';
+    const fetchMock = vi.fn();
+
+    await expect(subscribeWabaToApp('waba', 'token', fetchMock as unknown as typeof fetch)).resolves.toEqual({
+      ok: false,
+      message: 'WHATSAPP_WEBHOOK_CALLBACK_URL and WHATSAPP_WEBHOOK_VERIFY_TOKEN must be configured together',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a verification token is configured without a callback override', async () => {
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = 'dev-verify-token';
+    const fetchMock = vi.fn();
+
+    await expect(subscribeWabaToApp('waba', 'token', fetchMock as unknown as typeof fetch)).resolves.toEqual({
+      ok: false,
+      message: 'WHATSAPP_WEBHOOK_CALLBACK_URL and WHATSAPP_WEBHOOK_VERIFY_TOKEN must be configured together',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

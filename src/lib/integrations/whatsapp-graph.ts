@@ -13,9 +13,34 @@ export async function subscribeWabaToApp(
   fetchImpl: typeof fetch = fetch,
 ): Promise<SubscribeWabaResult> {
   try {
+    const callbackUrl = process.env.WHATSAPP_WEBHOOK_CALLBACK_URL?.trim();
+    const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim();
+    if (Boolean(callbackUrl) !== Boolean(verifyToken)) {
+      return {
+        ok: false,
+        message: 'WHATSAPP_WEBHOOK_CALLBACK_URL and WHATSAPP_WEBHOOK_VERIFY_TOKEN must be configured together',
+      };
+    }
+    if (callbackUrl) {
+      const parsedCallbackUrl = new URL(callbackUrl);
+      if (parsedCallbackUrl.protocol !== 'https:') {
+        return { ok: false, message: 'WHATSAPP_WEBHOOK_CALLBACK_URL must use HTTPS' };
+      }
+    }
+
+    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+    const request: RequestInit = { method: 'POST', headers };
+    if (callbackUrl && verifyToken) {
+      headers['Content-Type'] = 'application/json';
+      request.body = JSON.stringify({
+        override_callback_uri: callbackUrl,
+        verify_token: verifyToken,
+      });
+    }
+
     const response = await fetchImpl(
       `https://graph.facebook.com/${WHATSAPP_GRAPH_API_VERSION}/${encodeURIComponent(wabaId)}/subscribed_apps`,
-      { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } },
+      request,
     );
     const json = (await response.json().catch(() => ({}))) as {
       success?: boolean;
