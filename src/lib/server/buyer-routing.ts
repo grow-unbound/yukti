@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { unstable_cache } from 'next/cache';
 import { supabaseAdmin, supabase } from '@/lib/supabase';
 import { haversineKm } from '@/lib/haversine';
 import { deriveBuyerPlaceOfSupply, hasBuyerDeliveryCoordinates, type BuyerDeliveryAddress } from '@/lib/buyer-routing';
@@ -13,7 +14,20 @@ export interface BuyerResolvedRouting {
   placeOfSupply: string;
 }
 
-async function loadTenantRoutingThreshold(db: SupabaseClient, tenantId: string): Promise<number> {
+// Routing inputs are tenant-wide and change rarely (a seller edits a warehouse or the threshold),
+// but every buyer catalog/search/PDP request with delivery coordinates used to re-read all of them.
+// Cached per tenant; only the nearest-warehouse maths stays per request. Settings edits drop the
+// `tenant-settings:<tenant>` tag; warehouse edits wait out the TTL. `db` must be the service-role client.
+const ROUTING_INPUTS_REVALIDATE_SECONDS = 60;
+
+function cachedPerTenant<T>(name: string, tenantId: string, load: () => Promise<T>): Promise<T> {
+  return unstable_cache(load, ['buyer-routing', name, tenantId], {
+    revalidate: ROUTING_INPUTS_REVALIDATE_SECONDS,
+    tags: [`tenant-settings:${tenantId}`],
+  })();
+}
+
+async function fetchTenantRoutingThreshold(db: SupabaseClient, tenantId: string): Promise<number> {
   const { data: settingsRow } = await (db as any)
     .schema('app')
     .from('tenant_settings')
@@ -26,7 +40,7 @@ async function loadTenantRoutingThreshold(db: SupabaseClient, tenantId: string):
     : 50;
 }
 
-async function loadWarehouseLocations(db: SupabaseClient, tenantId: string) {
+async function fetchWarehouseLocations(db: SupabaseClient, tenantId: string) {
   const { data: warehouses } = await (db as any)
     .schema('app')
     .from('warehouses')
@@ -47,7 +61,7 @@ async function loadWarehouseLocations(db: SupabaseClient, tenantId: string) {
   }>;
 }
 
-async function loadDefaultLocation(db: SupabaseClient, tenantId: string) {
+async function fetchDefaultLocation(db: SupabaseClient, tenantId: string) {
   const { data: defaultLocs } = await (db as any)
     .schema('app')
     .from('locations')
@@ -60,7 +74,7 @@ async function loadDefaultLocation(db: SupabaseClient, tenantId: string) {
   return (defaultLocs as Array<{ id: string; name: string }> | null)?.[0] ?? null;
 }
 
-async function loadDefaultWarehouse(db: SupabaseClient, tenantId: string) {
+async function fetchDefaultWarehouse(db: SupabaseClient, tenantId: string) {
   const { data: defaultWarehouses } = await (db as any)
     .schema('app')
     .from('warehouses')
@@ -77,6 +91,15 @@ async function loadDefaultWarehouse(db: SupabaseClient, tenantId: string) {
     locations?: { id: string; name: string | null } | { id: string; name: string | null }[] | null;
   }> | null)?.[0] ?? null;
 }
+
+const loadTenantRoutingThreshold = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('threshold', tenantId, () => fetchTenantRoutingThreshold(db, tenantId));
+const loadWarehouseLocations = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('warehouses', tenantId, () => fetchWarehouseLocations(db, tenantId));
+const loadDefaultLocation = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('default-location', tenantId, () => fetchDefaultLocation(db, tenantId));
+const loadDefaultWarehouse = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('default-warehouse', tenantId, () => fetchDefaultWarehouse(db, tenantId));
 
 export async function resolveNearestBuyerLocation(
   db: SupabaseClient,

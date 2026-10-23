@@ -421,7 +421,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<EstimateR
 
 export async function GET(request: NextRequest) {
   try {
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { slim: true });
     if (!profile?.context.tenant_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
