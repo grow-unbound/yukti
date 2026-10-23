@@ -46,6 +46,10 @@ vi.mock('@/lib/auth', () => ({
   getVerifiedClaims: (...args: unknown[]) => getVerifiedClaimsMock(...args),
 }));
 
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+}));
+
 vi.mock('@/lib/server/seller-features', () => ({
   getInAppCreateFlags: vi.fn().mockResolvedValue({ create_sales_orders: true }),
 }));

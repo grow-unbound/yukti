@@ -3,6 +3,7 @@ import type { PulsePeriodKey, PulseWindow } from '@/lib/pulse/period';
 /** Payloads of app.get_pulse_* (computed at request time from raw tables). */
 
 export interface PulseWindowMetrics {
+  primary_demand_kind: 'estimates' | 'orders' | 'none';
   demand_value: number;
   demand_docs: number;
   demand_buyers: number;

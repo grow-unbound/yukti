@@ -124,7 +124,7 @@ describe('Pulse v2 routes', () => {
     rpcMock.mockImplementation((name: string) =>
       Promise.resolve(
         name === 'get_pulse_scorecard'
-          ? { data: { window: { from: '2026-10-01', to_excl: '2026-10-19' }, compare_window: null, current: { demand_value: 100, demand_docs: 2, demand_buyers: 1, quotes: { count: 2, converted: 1, lost: 0, open: 1 }, median_quote: 50, avg_lines: 2, app_invoiced_value: 0, app_invoiced_docs: 0, app_invoiced_buyers: 0, total_invoiced_value: 0, total_invoiced_docs: 0, engaged_buyers: 1 }, previous: null, open_quotes: { count: 0, value: 0, oldest_at: null, older_than_48h_count: 0, older_than_48h_value: 0 }, quoting_buyers: { new: 1, returning: 0, reactivated: 0 }, generated_at: '' }, error: null }
+          ? { data: { window: { from: '2026-10-01', to_excl: '2026-10-19' }, compare_window: null, current: { primary_demand_kind: 'estimates', demand_value: 100, demand_docs: 2, demand_buyers: 1, quotes: { count: 2, converted: 1, lost: 0, open: 1 }, median_quote: 50, avg_lines: 2, app_invoiced_value: 0, app_invoiced_docs: 0, app_invoiced_buyers: 0, total_invoiced_value: 0, total_invoiced_docs: 0, engaged_buyers: 1 }, previous: null, open_quotes: { count: 0, value: 0, oldest_at: null, older_than_48h_count: 0, older_than_48h_value: 0 }, quoting_buyers: { new: 1, returning: 0, reactivated: 0 }, generated_at: '' }, error: null }
           : name === 'get_pulse_customers'
             ? { data: null, error: { message: 'boom' } }
             : { data: { groups: [], rows: [], top: [], totals: null }, error: null },

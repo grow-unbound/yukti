@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -40,6 +40,13 @@ interface WhatsAppSignupResult {
   phoneNumberId: string;
   businessId: string | null;
 }
+
+const FACEBOOK_MESSAGE_ORIGINS = new Set([
+  'https://www.facebook.com',
+  'https://web.facebook.com',
+]);
+const SIGNUP_ATTEMPT_TIMEOUT_MS = 120_000;
+const SIGNUP_RESULT_TIMEOUT_MS = 15_000;
 
 interface WhatsAppEmbeddedSignupDialogProps {
   open: boolean;
@@ -85,7 +92,20 @@ export function WhatsAppEmbeddedSignupDialog({
   const [error, setError] = useState<string | null>(null);
   const signupResultRef = useRef<WhatsAppSignupResult | null>(null);
   const messageListenerRef = useRef<((event: MessageEvent) => void) | null>(null);
+  const signupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signupAttemptIdRef = useRef(0);
   const [fbSdkReady, setFbSdkReady] = useState(false);
+
+  const clearSignupAttempt = useCallback(() => {
+    if (messageListenerRef.current) {
+      window.removeEventListener('message', messageListenerRef.current);
+      messageListenerRef.current = null;
+    }
+    if (signupTimeoutRef.current) {
+      clearTimeout(signupTimeoutRef.current);
+      signupTimeoutRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -94,10 +114,8 @@ export function WhatsAppEmbeddedSignupDialog({
       setBillingConfirmed(false);
       setError(null);
       signupResultRef.current = null;
-      if (messageListenerRef.current) {
-        window.removeEventListener('message', messageListenerRef.current);
-        messageListenerRef.current = null;
-      }
+      signupAttemptIdRef.current += 1;
+      clearSignupAttempt();
       return;
     }
 
@@ -110,15 +128,14 @@ export function WhatsAppEmbeddedSignupDialog({
     if (metaAppId) {
       loadFacebookSdk(metaAppId).then(() => setFbSdkReady(true));
     }
-  }, [open, metaAppId]);
+  }, [clearSignupAttempt, open, metaAppId]);
 
   useEffect(() => {
     return () => {
-      if (messageListenerRef.current) {
-        window.removeEventListener('message', messageListenerRef.current);
-      }
+      signupAttemptIdRef.current += 1;
+      clearSignupAttempt();
     };
-  }, []);
+  }, [clearSignupAttempt]);
 
   function startEmbeddedSignup() {
     setError(null);
@@ -134,23 +151,70 @@ export function WhatsAppEmbeddedSignupDialog({
     }
 
     setStep('connecting');
+    clearSignupAttempt();
+    signupResultRef.current = null;
+    const attemptId = signupAttemptIdRef.current + 1;
+    signupAttemptIdRef.current = attemptId;
+
+    const isCurrentAttempt = () => signupAttemptIdRef.current === attemptId;
+    const endAttempt = () => {
+      if (!isCurrentAttempt()) return;
+      signupAttemptIdRef.current += 1;
+      clearSignupAttempt();
+    };
+    const failAttempt = (message: string) => {
+      endAttempt();
+      setError(message);
+      setStep('warning');
+    };
+    const advanceWhenComplete = () => {
+      if (!isCurrentAttempt()) return false;
+      const result = signupResultRef.current;
+      if (!result?.code || !result.wabaId || !result.phoneNumberId) return false;
+      endAttempt();
+      setStep('pin');
+      return true;
+    };
+    const scheduleMissingResultTimeout = () => {
+      if (!isCurrentAttempt()) return;
+      if (signupTimeoutRef.current) clearTimeout(signupTimeoutRef.current);
+      signupTimeoutRef.current = setTimeout(() => {
+        if (!isCurrentAttempt()) return;
+        const result = signupResultRef.current;
+        failAttempt(
+          !result?.code
+            ? 'Facebook did not return an authorization code. Please try again.'
+            : 'WhatsApp did not return a business account or phone number. Please try again.',
+        );
+      }, SIGNUP_RESULT_TIMEOUT_MS);
+    };
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== 'https://www.facebook.com') return;
+      if (!FACEBOOK_MESSAGE_ORIGINS.has(event.origin) || !isCurrentAttempt()) return;
       try {
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (data?.type === 'WA_EMBEDDED_SIGNUP' && data?.event === 'FINISH') {
-          const { waba_id, phone_number_id, business_id } = data.data ?? {};
+        if (data?.type !== 'WA_EMBEDDED_SIGNUP') return;
+
+        if (data.event === 'ERROR') {
+          const message = typeof data.data?.error_message === 'string'
+            ? data.data.error_message
+            : 'WhatsApp setup could not be completed. Please try again.';
+          failAttempt(message);
+          return;
+        }
+        if (data.event === 'CANCEL') {
+          failAttempt('WhatsApp connection was cancelled.');
+          return;
+        }
+        if (typeof data.event === 'string' && (data.event === 'FINISH' || data.event.startsWith('FINISH_'))) {
+          const { waba_id, phone_number_id, business_id, businessId } = data.data ?? {};
           signupResultRef.current = {
             code: signupResultRef.current?.code ?? '',
             wabaId: waba_id ?? '',
             phoneNumberId: phone_number_id ?? '',
-            businessId: business_id ?? null,
+            businessId: business_id ?? businessId ?? null,
           };
-        }
-        if (data?.type === 'WA_EMBEDDED_SIGNUP' && data?.event === 'CANCEL') {
-          setError('WhatsApp connection was cancelled.');
-          setStep('warning');
+          if (!advanceWhenComplete()) scheduleMissingResultTimeout();
         }
       } catch {
         // Non-JSON postMessage from an unrelated source — ignore.
@@ -158,13 +222,17 @@ export function WhatsAppEmbeddedSignupDialog({
     };
     window.addEventListener('message', handleMessage);
     messageListenerRef.current = handleMessage;
+    signupTimeoutRef.current = setTimeout(() => {
+      if (!isCurrentAttempt()) return;
+      failAttempt('Facebook login did not complete. Check that pop-ups are allowed, then try again.');
+    }, SIGNUP_ATTEMPT_TIMEOUT_MS);
 
     window.FB?.login(
       (response) => {
+        if (!isCurrentAttempt()) return;
         const code = response.authResponse?.code;
         if (!code) {
-          setError('Facebook did not return an authorization code. Please try again.');
-          setStep('warning');
+          failAttempt('Facebook did not return an authorization code. Please try again.');
           return;
         }
         signupResultRef.current = {
@@ -173,18 +241,13 @@ export function WhatsAppEmbeddedSignupDialog({
           phoneNumberId: signupResultRef.current?.phoneNumberId ?? '',
           businessId: signupResultRef.current?.businessId ?? null,
         };
-        if (!signupResultRef.current.wabaId || !signupResultRef.current.phoneNumberId) {
-          setError('WhatsApp did not return a business account or phone number. Please try again.');
-          setStep('warning');
-          return;
-        }
-        setStep('pin');
+        if (!advanceWhenComplete()) scheduleMissingResultTimeout();
       },
       {
         config_id: configId,
         response_type: 'code',
         override_default_response_type: true,
-        extras: { setup: {} },
+        extras: { setup: {}, sessionInfoVersion: '3' },
       },
     );
   }

@@ -3,7 +3,7 @@ import { buildScorecardTiles, relativeDelta } from '@/lib/pulse/scorecard-tiles'
 import type { PulseScorecardResponse, PulseWindowMetrics } from '@/types/pulse-v2';
 
 const m = (o: Partial<PulseWindowMetrics> = {}): PulseWindowMetrics => ({
-  demand_value: 100000, demand_docs: 10, demand_buyers: 4, quotes: { count: 10, converted: 7, lost: 0, open: 3 }, median_quote: 5000, avg_lines: 3,
+  primary_demand_kind: 'estimates', demand_value: 100000, demand_docs: 10, demand_buyers: 4, quotes: { count: 10, converted: 7, lost: 0, open: 3 }, median_quote: 5000, avg_lines: 3,
   app_invoiced_value: 50000, app_invoiced_docs: 5, app_invoiced_buyers: 3, total_invoiced_value: 200000, total_invoiced_docs: 20, engaged_buyers: 30, ...o,
 });
 const sc = (o: Partial<PulseScorecardResponse> = {}): PulseScorecardResponse => ({
@@ -29,12 +29,18 @@ describe('buildScorecardTiles', () => {
   it('produces five owner-language tiles with deltas against the comparison window', () => {
     const tiles = buildScorecardTiles(sc(), now);
     expect(tiles.map((t) => t.id)).toEqual(['demand', 'invoiced', 'share', 'customers', 'quotes']);
+    expect(tiles[0]).toMatchObject({ label: 'Quotes received', sub: '10 quotes from 4 customers' });
     expect(tiles[0].delta).toBe('+100% vs previous');
     expect(tiles[2].value).toBe('25.0%');
     expect(tiles[3].sub).toBe('Ordering: 2 new · 1 returning · 1 came back');
     expect(tiles[4].tone).toBe('warn');
     expect(tiles[4].sub).toContain('oldest 8 days');
     expect(tiles.map((t) => t.label).join(' ')).not.toMatch(/PostHog|DAU|WAU|MAU|Yukti/);
+  });
+
+  it('uses order language for order-led tenants', () => {
+    const tiles = buildScorecardTiles(sc({ current: m({ primary_demand_kind: 'orders', demand_docs: 2 }) }), now);
+    expect(tiles[0]).toMatchObject({ label: 'Orders received', sub: '2 orders from 4 customers' });
   });
 
   it('suppresses every delta for thin windows and when there is no comparison', () => {

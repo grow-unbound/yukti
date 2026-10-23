@@ -3,7 +3,7 @@ import { buildReviewText, escapeHtml, renderReviewHtml, type PulseReviewData } f
 import type { PulseScorecardResponse, PulseWindowMetrics } from '@/types/pulse-v2';
 
 const m = (over: Partial<PulseWindowMetrics> = {}): PulseWindowMetrics => ({
-  demand_value: 250000, demand_docs: 20, demand_buyers: 12,
+  primary_demand_kind: 'estimates', demand_value: 250000, demand_docs: 20, demand_buyers: 12,
   quotes: { count: 20, converted: 8, lost: 0, open: 12 }, median_quote: 3000, avg_lines: 3,
   app_invoiced_value: 120000, app_invoiced_docs: 9, app_invoiced_buyers: 7, total_invoiced_value: 600000, total_invoiced_docs: 40,
   engaged_buyers: 30, ...over,
