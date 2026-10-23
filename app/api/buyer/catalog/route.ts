@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireBuyerAccessProfile } from '@/lib/server/buyer-access';
 import { BUYER_CACHE_PRICED } from '@/lib/server/buyer-cache-headers';
+import { jsonWithEtag } from '@/lib/server/buyer-etag';
 import { recordBuyerAppActivitySafe } from '@/lib/server/buyer-app-activity';
 import { recordCampaignView } from '@/lib/server/campaign-engagement';
 import {
@@ -98,10 +99,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    return NextResponse.json({
+    // The catalog switcher list rides on the first page only (the client reads it from
+    // /api/buyer/catalogs); scroll pages used to repeat it.
+    return jsonWithEtag(req, {
       ...response,
-      catalogs: context.catalogs,
-    } satisfies BuyerCatalogResponse, { headers: BUYER_CACHE_PRICED });
+      ...(offset === 0 ? { catalogs: context.catalogs } : {}),
+    } satisfies BuyerCatalogResponse, BUYER_CACHE_PRICED);
   } catch (error) {
     console.error('[GET /api/buyer/catalog]', error);
     return NextResponse.json({ error: 'Failed to fetch catalog' }, { status: 500 });

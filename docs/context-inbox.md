@@ -15,6 +15,18 @@ Item format:
 
 ## Pending
 
+### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — Supabase "Cached Egress" is 0 by design; egress = PostgREST payload bytes
+- [ ] target: MEMORY.md   change: add
+- text: Free-plan egress alarms: Cached Egress stays 0 because every PostgREST/RPC reply is `cf_cache_status: DYNAMIC` (service-role POSTs from Vercel; only Storage CDN is cacheable, images are on R2). The lever is bytes per call: one `load_products_scoped(limit 40)` page is ~56-60 KB (~1.5 KB/row, mostly JSON keys + r2 key columns); `.rpc().select(cols)` trims only ~7%. Bigger wins need per-row dedupe (brand/category/family fields) or fewer/smaller pages.
+- why: Oct 23 review (4.67/5 GB; edge logs have no response size, measured with `to_jsonb(row)` byte SELECT on prod).
+- cost: 1 line, always-loaded
+
+### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — buyer-path RPC/table reads: cache whole small sets, not per-page filters
+- [ ] target: .claude/rules/data-fetching.md   change: add
+- text: under "Caching": "Per-page `WHERE id IN (page ids)` reads of small tenant-wide sets (campaign_items: 12 campaigns, ~940 rows) become one query shape per page. Cache the whole set per (tenant, parent id) with `unstable_cache` + the buyer-context tag and filter in memory (`src/lib/server/campaign-items-cache.ts`)."
+- why: Oct 23 edge-log shape query: campaign_items ~380 calls / 30 min in 4 shapes, all page-id filters.
+- cost: 1 line, path-scoped
+
 ### 2026-10-17 perf/buyer-profile-slim — specs/ and docs/incidents/ are gitignored; say so
 - [ ] target: CLAUDE.md ("Where to look" table)   change: edit
 - text: append to the `specs/INDEX.md` row: "(`specs/` and `docs/incidents/` are gitignored in this public repo: new specs/logs stay local, don't `git add` them)"
@@ -196,6 +208,24 @@ Item format:
 - text: `Secondary git worktrees (baseline comparisons): run ./node_modules/.bin/vitest, never pnpm exec; pnpm's deps check tries to re-install and aborts with ERR_PNPM_UNSAFE_MODULES_DIR when node_modules is a symlink.`
 - why: `pnpm exec vitest` in a baseline worktree attempted `pnpm install` against the symlinked modules dir; refused only by pnpm's safety check (2 wasted turns).
 - cost: 1 line, always-loaded (reject if CLAUDE.md budget is tight)
+
+### 2026-10-23 codex/fix-whatsapp-embedded-signup — branch sweeps must use the fetched remote base
+- [ ] target: CLAUDE.md (Workflow)   change: add
+- text: `For an unmerged-branch sweep, fetch/prune first and compare every local/remote topic branch against the fetched PR base (for example origin/develop), never a possibly stale local develop. Use patch-equivalence (--cherry-pick / range-diff), not ancestry alone, because squash/rebase and stacked branches otherwise look missing; reconcile obsolete branch history only after verifying the current tree contains or supersedes its behavior.`
+- why: local `develop` was 117 commits behind `origin/develop`, initially making already-merged work look like dozens of pending commits; stale stacked WhatsApp branches also had different hashes for functionality already merged through PR #204.
+- cost: 1-2 lines, always-loaded
+
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — Embedded Signup cannot depend on browser asset IDs
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta retired WhatsApp Embedded Signup v2/v3 on 2026-10-15. Yukti launches the Facebook Login for Business configuration without sessionInfoVersion and treats browser waba_id/phone_number_id as optional hints: after exchanging the OAuth code, the server resolves granted WABAs from debug_token granular scopes and phone numbers from /{waba_id}/phone_numbers. Never silently choose when multiple phones are available.`
+- why: the live app returned a valid OAuth code after Meta confirmation but no usable WA_EMBEDDED_SIGNUP asset event, reproducing “WhatsApp did not return a business account or phone number”; requiring both IDs client-side blocked onboarding even though Graph authorization succeeded.
+- cost: 2-3 lines, on-demand MEMORY.md
+
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — FB.login codes are bound to the SDK popup callback
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta FB.login popup authorization codes are bound to the SDK-generated redirect_uri (currently the dynamic https://staticxx.facebook.com/x/connect/xd_arbiter/ callback, including its fragment). Capture that exact value from the OAuth popup URL and send it in the server-side code exchange; the app page URL, an omitted redirect_uri, or a reconstructed callback produces OAuth subcode 36008. Strictly allowlist the Meta callback host/path before exchange.`
+- why: app.yukti.so reached the PIN step but the live develop callback failed at /oauth/access_token with Meta subcode 36008; the deployed app-ID/secret pair independently validated, and Meta's current debug SDK shows permission_oauth_transform replacing redirect_uri with UIServer.xdHandler.
+- cost: 2-3 lines, on-demand MEMORY.md
 
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes

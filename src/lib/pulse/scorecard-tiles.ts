@@ -49,11 +49,21 @@ export function buildScorecardTiles(sc: PulseScorecardResponse, now: Date = new 
   const tiles: ScorecardTile[] = [];
 
   const d1 = relativeDelta(cur.demand_value, prev?.demand_value, prev?.demand_docs ?? 0);
+  const demandLabel = cur.primary_demand_kind === 'orders'
+    ? 'Orders received'
+    : cur.primary_demand_kind === 'estimates'
+      ? 'Quotes received'
+      : 'Demand received';
+  const demandNoun = cur.primary_demand_kind === 'orders'
+    ? plural(cur.demand_docs, 'order', 'orders')
+    : cur.primary_demand_kind === 'estimates'
+      ? plural(cur.demand_docs, 'quote', 'quotes')
+      : plural(cur.demand_docs, 'document', 'documents');
   tiles.push({
     id: 'demand',
-    label: 'Orders and quotes received',
+    label: demandLabel,
     value: money(cur.demand_value),
-    sub: `${count(cur.demand_docs)} ${plural(cur.demand_docs, 'quote', 'quotes')} from ${count(cur.demand_buyers)} ${plural(cur.demand_buyers, 'customer', 'customers')}`,
+    sub: `${count(cur.demand_docs)} ${demandNoun} from ${count(cur.demand_buyers)} ${plural(cur.demand_buyers, 'customer', 'customers')}`,
     delta: d1?.text,
     deltaTone: d1?.tone,
   });

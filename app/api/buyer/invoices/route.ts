@@ -33,7 +33,7 @@ interface InvoiceRow {
 
 export async function GET(request: NextRequest): Promise<NextResponse<BuyerInvoicesResponse>> {
   try {
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { slim: true });
     if (!profile?.context.tenant_id) {
       return NextResponse.json({ invoices: [], nextCursor: null, total: null }, { status: 401 });
     }

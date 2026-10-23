@@ -29,6 +29,7 @@ vi.mock('next/navigation', () => ({
     back: vi.fn(),
     forward: vi.fn(),
   }),
+  usePathname: () => '/settings/integrations',
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -927,7 +928,7 @@ describe('integrations settings client', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Data flows/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Data flows/ }));
 
     expect(screen.getByText('Schedule coverage')).toBeInTheDocument();
     expect(screen.getByText('Webhooks')).toBeInTheDocument();
@@ -936,7 +937,7 @@ describe('integrations settings client', () => {
     expect(screen.getByText('today · 6 processed')).toBeInTheDocument();
     expect(screen.getAllByText(/Next run/i).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: /History/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /History/ }));
 
     expect(screen.getAllByText('Scheduled').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Manual').length).toBeGreaterThan(0);
@@ -1005,7 +1006,7 @@ describe('integrations settings client', () => {
     );
 
     expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: /History/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /History/ }));
     expect(screen.getAllByText(/Cancelled by user request/i).length).toBeGreaterThan(0);
   });
 
