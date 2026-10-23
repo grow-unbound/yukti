@@ -46,7 +46,6 @@ const FACEBOOK_MESSAGE_ORIGINS = new Set([
   'https://web.facebook.com',
 ]);
 const SIGNUP_ATTEMPT_TIMEOUT_MS = 120_000;
-const SIGNUP_RESULT_TIMEOUT_MS = 15_000;
 
 interface WhatsAppEmbeddedSignupDialogProps {
   open: boolean;
@@ -167,26 +166,16 @@ export function WhatsAppEmbeddedSignupDialog({
       setError(message);
       setStep('warning');
     };
-    const advanceWhenComplete = () => {
+    const advanceWhenAuthorized = () => {
       if (!isCurrentAttempt()) return false;
       const result = signupResultRef.current;
-      if (!result?.code || !result.wabaId || !result.phoneNumberId) return false;
-      endAttempt();
+      if (!result?.code) return false;
+      if (signupTimeoutRef.current) {
+        clearTimeout(signupTimeoutRef.current);
+        signupTimeoutRef.current = null;
+      }
       setStep('pin');
       return true;
-    };
-    const scheduleMissingResultTimeout = () => {
-      if (!isCurrentAttempt()) return;
-      if (signupTimeoutRef.current) clearTimeout(signupTimeoutRef.current);
-      signupTimeoutRef.current = setTimeout(() => {
-        if (!isCurrentAttempt()) return;
-        const result = signupResultRef.current;
-        failAttempt(
-          !result?.code
-            ? 'Facebook did not return an authorization code. Please try again.'
-            : 'WhatsApp did not return a business account or phone number. Please try again.',
-        );
-      }, SIGNUP_RESULT_TIMEOUT_MS);
     };
 
     const handleMessage = (event: MessageEvent) => {
@@ -207,14 +196,17 @@ export function WhatsAppEmbeddedSignupDialog({
           return;
         }
         if (typeof data.event === 'string' && (data.event === 'FINISH' || data.event.startsWith('FINISH_'))) {
-          const { waba_id, phone_number_id, business_id, businessId } = data.data ?? {};
+          const { waba_id, waba_ids, phone_number_id, business_id, businessId } = data.data ?? {};
+          const soleWabaId = Array.isArray(waba_ids) && waba_ids.length === 1 && typeof waba_ids[0] === 'string'
+            ? waba_ids[0]
+            : '';
           signupResultRef.current = {
             code: signupResultRef.current?.code ?? '',
-            wabaId: waba_id ?? '',
+            wabaId: typeof waba_id === 'string' ? waba_id : soleWabaId,
             phoneNumberId: phone_number_id ?? '',
             businessId: business_id ?? businessId ?? null,
           };
-          if (!advanceWhenComplete()) scheduleMissingResultTimeout();
+          advanceWhenAuthorized();
         }
       } catch {
         // Non-JSON postMessage from an unrelated source — ignore.
@@ -241,13 +233,13 @@ export function WhatsAppEmbeddedSignupDialog({
           phoneNumberId: signupResultRef.current?.phoneNumberId ?? '',
           businessId: signupResultRef.current?.businessId ?? null,
         };
-        if (!advanceWhenComplete()) scheduleMissingResultTimeout();
+        advanceWhenAuthorized();
       },
       {
         config_id: configId,
         response_type: 'code',
         override_default_response_type: true,
-        extras: { setup: {}, sessionInfoVersion: '3' },
+        extras: { setup: {} },
       },
     );
   }
@@ -266,6 +258,7 @@ export function WhatsAppEmbeddedSignupDialog({
 
     setStep('submitting');
     setError(null);
+    clearSignupAttempt();
     try {
       const res = await apiPost('/api/settings/integrations/whatsapp/oauth/callback', {
         code: result.code,

@@ -31,10 +31,10 @@ vi.mock('@/lib/supabase', () => ({
 import { POST } from '../../app/api/settings/integrations/whatsapp/oauth/callback/route';
 import { subscribeWabaToApp } from '@/lib/integrations/whatsapp-graph';
 
-function req() {
+function req(overrides: Record<string, unknown> = {}) {
   return new NextRequest('http://localhost/api/settings/integrations/whatsapp/oauth/callback', {
     method: 'POST',
-    body: JSON.stringify({ code: 'c', waba_id: 'waba-1', phone_number_id: 'pn-1', business_id: 'b-1', pin: '123456' }),
+    body: JSON.stringify({ code: 'c', waba_id: 'waba-1', phone_number_id: 'pn-1', business_id: 'b-1', pin: '123456', ...overrides }),
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -44,9 +44,26 @@ function metaResponse(body: unknown, ok = true) {
 }
 
 /** Routes Graph calls by URL so call order does not matter. */
-function mockGraph({ subscribeOk }: { subscribeOk: boolean }) {
+function mockGraph({
+  subscribeOk,
+  phoneNumbers = [{ id: 'pn-1', display_phone_number: '+91 90000 00000' }],
+  debugTargetIds = ['waba-1'],
+  assignedWabaIds = [],
+}: {
+  subscribeOk: boolean;
+  phoneNumbers?: Array<{ id: string; display_phone_number: string }>;
+  debugTargetIds?: string[];
+  assignedWabaIds?: string[];
+}) {
   const fetchMock = vi.fn(async (url: string) => {
     if (url.includes('/oauth/access_token')) return metaResponse({ access_token: 'tok' });
+    if (url.includes('/debug_token')) {
+      return metaResponse({ data: { user_id: 'business-user-1', granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: debugTargetIds }] } });
+    }
+    if (url.includes('/assigned_whatsapp_business_accounts')) {
+      return metaResponse({ data: assignedWabaIds.map((id) => ({ id })) });
+    }
+    if (url.includes('/phone_numbers')) return metaResponse({ data: phoneNumbers });
     if (url.includes('/register')) return metaResponse({ success: true });
     if (url.includes('/subscribed_apps')) {
       return subscribeOk
@@ -114,6 +131,68 @@ describe('POST /api/settings/integrations/whatsapp/oauth/callback', () => {
     );
     const row = upsertMock.mock.calls[0][0] as { config: Record<string, unknown> };
     expect(row.config.webhook_subscribed_at).toEqual(expect.any(String));
+  });
+
+  it('discovers the WABA and its sole phone number when v4 omits browser asset IDs', async () => {
+    const fetchMock = mockGraph({ subscribeOk: true });
+    setupTables({ data: { id: 'int-1' }, error: null });
+
+    const res = await POST(req({ waba_id: null, phone_number_id: null }));
+
+    expect(res.status).toBe(200);
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('/debug_token'))).toBe(true);
+    expect(urls.some((url) => url.includes('/assigned_whatsapp_business_accounts'))).toBe(false);
+    expect(urls.some((url) => url.includes('/owned_whatsapp_business_accounts'))).toBe(false);
+    expect(urls.some((url) => url.includes('/waba-1/phone_numbers'))).toBe(true);
+    expect(urls.some((url) => url.includes('/pn-1/register'))).toBe(true);
+    expect(upsertMock.mock.calls[0][0]).toMatchObject({
+      config: { waba_id: 'waba-1', phone_number_id: 'pn-1', display_phone_number: '+91 90000 00000' },
+    });
+  });
+
+  it('falls back to assigned WABAs when granular scopes omit target IDs', async () => {
+    const fetchMock = mockGraph({ subscribeOk: true, debugTargetIds: [], assignedWabaIds: ['waba-1'] });
+    setupTables({ data: { id: 'int-1' }, error: null });
+
+    const res = await POST(req({ waba_id: null, phone_number_id: null, business_id: null }));
+
+    expect(res.status).toBe(200);
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('/assigned_whatsapp_business_accounts'))).toBe(true);
+    expect(urls.some((url) => url.includes('/waba-1/phone_numbers'))).toBe(true);
+  });
+
+  it('rejects a phone hint that does not belong to the hinted WABA', async () => {
+    const fetchMock = mockGraph({ subscribeOk: true });
+    setupTables({ data: { id: 'int-1' }, error: null });
+
+    const res = await POST(req({ phone_number_id: 'pn-from-another-waba' }));
+    const json = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(json.error.code).toBe('ASSET_DISCOVERY_FAILED');
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/register'))).toBe(false);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it('fails safely when Meta exposes multiple phones without a selected phone ID', async () => {
+    mockGraph({
+      subscribeOk: true,
+      phoneNumbers: [
+        { id: 'pn-1', display_phone_number: '+91 90000 00000' },
+        { id: 'pn-2', display_phone_number: '+91 91111 11111' },
+      ],
+    });
+    setupTables({ data: { id: 'int-1' }, error: null });
+
+    const res = await POST(req({ phone_number_id: null }));
+    const json = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(json.error.code).toBe('ASSET_DISCOVERY_FAILED');
+    expect(json.error.message).toMatch(/more than one/i);
+    expect(upsertMock).not.toHaveBeenCalled();
   });
 
   it('returns 409 when the phone number is already connected to another tenant', async () => {
