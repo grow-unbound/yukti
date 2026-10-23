@@ -40,7 +40,25 @@ export function isStorefrontGuestRequest(request: NextRequest): boolean {
     && !request.headers.get('x-verified-buyer-id');
 }
 
-export async function loadLivePublicCatalog(
+const LIVE_PUBLIC_CATALOG_REVALIDATE_SECONDS = 60;
+
+/**
+ * The tenant's live public catalog, cached per tenant. ~6 buyer routes (/me, estimates, home reco,
+ * recommendations, pending guard, catalog SSR) read it on every request. Tag `public-catalog:<tenant>`
+ * is the one revalidatePublicCatalogCache already drops when the catalog is edited or goes live/off.
+ */
+export function loadLivePublicCatalog(
+  db: SupabaseClient,
+  tenantId: string,
+): Promise<PublicCatalogRecord | null> {
+  return unstable_cache(
+    () => fetchLivePublicCatalog(db, tenantId),
+    ['public-catalog-live', tenantId],
+    { revalidate: LIVE_PUBLIC_CATALOG_REVALIDATE_SECONDS, tags: [`public-catalog:${tenantId}`] },
+  )();
+}
+
+async function fetchLivePublicCatalog(
   db: SupabaseClient,
   tenantId: string,
 ): Promise<PublicCatalogRecord | null> {

@@ -21,6 +21,7 @@ vi.mock('@/lib/server/buyer-routing', () => ({
 }));
 
 vi.mock('@/lib/server/scoped-product-search', () => ({
+  BUYER_SCOPED_PRODUCT_COLUMNS: ['tenant_product_id', 'total_count'],
   searchScopedProducts: vi.fn(),
 }));
 
