@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/seller/layout/PageHeader';
 import { PageWrap } from '@/components/seller/layout/PageWrap';
 import { StickyListHeader } from '@/components/seller/layout/StickyListHeader';
 import { SellerMobileList, SellerMobileListSkeleton, type SellerMobileListItem } from '@/components/seller/mobile/SellerMobileList';
-import { useApplyGenericEntryAction, useEnquiryTriageByIds, useInboxEntries } from '@/hooks/useInboxEntries';
+import { useApplyGenericEntryAction, useEnquirySummaries, useInboxEntries } from '@/hooks/useInboxEntries';
 import { useFlagState } from '@/hooks/useFeatureFlag';
 import { useInfiniteScroll, getSentinelInsertIndex } from '@/hooks/useInfiniteScroll';
 import { useTenantSettings } from '@/hooks/useTenantSettings';
@@ -18,8 +18,8 @@ import { SELLER_INFINITE_SCROLL_RATIO } from '@/lib/seller-ui';
 import { groupEntriesByDateAndCustomer } from '@/lib/inbox/inbox-grouping';
 import { TIME_BUCKET_LABEL, type InboxEntryType, type InboxGroupedBuyer } from '@/lib/inbox/inbox-types';
 import { buildListSupportingLine } from '@/lib/inbox/inbox-entry-copy';
-import { buildEnquiryPreviewLine, enquiryHasAtRiskLine } from '@/lib/inbox/inbox-list-entry-copy';
-import type { EnquiryTriagePayload } from '@/lib/inbox/enquiry-triage';
+import { buildEnquirySummaryLine } from '@/lib/inbox/inbox-list-entry-copy';
+import type { EnquirySummary } from '@/lib/inbox/enquiry-triage';
 import { sourceChannelForEntries, type InboxChannel } from '@/lib/inbox/inbox-detail-groups';
 import { TODAY_LAST_OPENED_COOKIE, TODAY_VIEWPORT_COOKIE, writeClientCookie } from '@/lib/inbox/inbox-default-buyer';
 import { InboxEmptyState } from './InboxEmptyState';
@@ -68,7 +68,7 @@ function ChannelBadge({ channel }: { channel: InboxChannel }) {
 function buyerListItem(
   buyer: InboxGroupedBuyer,
   activeId: string | undefined,
-  enquiryByEntryId: Map<string, EnquiryTriagePayload>,
+  enquiryByEntryId: Map<string, EnquirySummary>,
   reviewedEntryIds: Set<string>,
   onReviewBuyer: (buyer: InboxGroupedBuyer) => void,
 ): SellerMobileListItem {
@@ -77,7 +77,7 @@ function buyerListItem(
   // already uses.
   const primary = buyer.entries[0];
   const enquiry = primary?.entry_type === 'new_enquiry' ? enquiryByEntryId.get(primary.id) : undefined;
-  const atRisk = enquiry ? enquiryHasAtRiskLine(enquiry.lines) : false;
+  const atRisk = enquiry?.atRisk ?? false;
   const hasUnreadNewEntry = buyer.entries.some((entry) => entry.status === 'new' && !reviewedEntryIds.has(entry.id));
 
   return {
@@ -86,7 +86,7 @@ function buyerListItem(
     leading: <ChannelBadge channel={sourceChannelForEntries(buyer.entries)} />,
     eyebrow: enquiry ? enquiry.estimateNumber : undefined,
     primary: buyer.buyerName,
-    supporting: enquiry ? buildEnquiryPreviewLine(enquiry.lines, enquiry.totalAmount) : buildListSupportingLine(buyer.entries),
+    supporting: enquiry ? buildEnquirySummaryLine(enquiry) : buildListSupportingLine(buyer.entries),
     trailing: buyer.totalCount > 1 ? <CountChip>{buyer.totalCount}</CountChip> : undefined,
     status: atRisk
       ? { label: 'Stock gap', tone: 'warning' }
@@ -175,7 +175,7 @@ export function InboxListClient() {
       .map((entry) => entry.id),
     [sections],
   );
-  const enquiryByEntryId = useEnquiryTriageByIds(primaryEnquiryEntryIds);
+  const enquiryByEntryId = useEnquirySummaries(primaryEnquiryEntryIds);
 
   const reviewBuyer = useCallback(
     (buyer: InboxGroupedBuyer) => {

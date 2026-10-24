@@ -40,6 +40,7 @@ export function InboxConvertEnquiryModal({ entry, open, onOpenChange, onConverte
     onConverted();
     void queryClient.invalidateQueries({ queryKey: ['inbox-entries'] });
     void queryClient.invalidateQueries({ queryKey: ['inbox-entry-enquiry', entry.id] });
+    void queryClient.invalidateQueries({ queryKey: ['inbox-entry-enquiry', 'summary'] });
   }
 
   function handleSO(payload: { line_ids: string[]; qty_overrides: Record<string, number>; price_overrides?: Record<string, number>; delivery_date: string; order_number?: string; added_lines?: AddedLine[] }) {

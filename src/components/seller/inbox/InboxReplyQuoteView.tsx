@@ -8,13 +8,13 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
-import { useEnquiryTriage } from '@/hooks/useInboxEntries';
+import { useEnquiryLineAlternates, useEnquiryTriage } from '@/hooks/useInboxEntries';
 import { useEstimateComposer, useEstimateProductSearch, useSaveEstimateComposer, useSendEstimateDetailWhatsApp } from '@/hooks/useEstimates';
 import { computeDocumentTotals, type GstLineInput } from '@/lib/gst';
-import { enquiryStockStatus, type EnquiryVelocity } from '@/lib/inbox/enquiry-triage';
+import { enquiryStockStatus } from '@/lib/inbox/enquiry-triage';
 import { buildTargetRangeLabel } from '@/lib/inbox/inbox-entry-copy';
 import { cn, formatNumberValue } from '@/lib/utils';
-import { StockCell, VelocityCell } from './EnquiryLineDisplay';
+import { StockCell } from './EnquiryLineDisplay';
 import type { EstimateComposerLineInput, EstimateComposerProductSearchRow, EstimateComposerSavePayload } from '@/types/estimate-composer';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
 
@@ -36,7 +36,7 @@ interface QuoteRow {
   targetMin: number | null;
   targetMax: number | null;
   resolvedPrice: number | null;
-  velocity: EnquiryVelocity | null;
+  baseRate: number | null;
   removed: boolean;
   priceValue: string;
   qtyValue: string;
@@ -107,7 +107,7 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
       targetMin: item.buyer_target_unit_price_min ?? null,
       targetMax: item.buyer_target_unit_price_max ?? null,
       resolvedPrice: triageLine?.resolvedPrice ?? null,
-      velocity: triageLine?.velocity ?? null,
+      baseRate: triageLine?.baseRate ?? null,
       removed: removedIds.has(item.id),
       priceValue: priceFor(item),
       qtyValue: qtyFor(item),
@@ -126,7 +126,7 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
     targetMin: null,
     targetMax: null,
     resolvedPrice: null,
-    velocity: null,
+    baseRate: null,
     removed: false,
     priceValue: priceDrafts[added.tempId] ?? (added.product.unit_price > 0 ? String(added.product.unit_price) : ''),
     qtyValue: qtyDrafts[added.tempId] ?? '1',
@@ -227,6 +227,7 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
       // The triage panel/list rows read a separate cache from the composer's --
       // without this they keep showing removed lines and stale prices.
       void queryClient.invalidateQueries({ queryKey: ['inbox-entry-enquiry', entry.id] });
+      void queryClient.invalidateQueries({ queryKey: ['inbox-entry-enquiry', 'summary'] });
       void queryClient.invalidateQueries({ queryKey: ['inbox-entries'] });
       toast.success('Draft saved');
       return true;
@@ -266,7 +267,9 @@ export function useInboxReplyQuoteDraft(entry: InboxEntry, enabled = true) {
     toggleRemoved,
     addAlternate,
     triageByItemId,
-    alternatesByItemId: new Map((triageQuery.data?.lines ?? []).map((l) => [l.id, l.alternates])),
+    entryId: entry.id,
+    // Seller quotes against the buyer's resolved price only where prices are hidden and targets are collected.
+    showTargetPricing: !!triageQuery.data && triageQuery.data.hiddenPricing && triageQuery.data.collectTargetUnitPriceRange,
     productQuery,
     setProductQuery,
     searchOpen,
@@ -314,11 +317,33 @@ function CurrencyInput({ value, onChange, placeholder }: { value: string; onChan
   );
 }
 
+/** Alternates for one short line, fetched only once the seller asks for them. */
+function AlternateChips({ draft, lineId }: { draft: InboxReplyQuoteDraft; lineId: string }) {
+  const query = useEnquiryLineAlternates(draft.entryId, lineId, true);
+  if (query.isLoading) return <p className="mt-2 text-xs text-cream-500">Finding in-stock alternatives…</p>;
+  const alternates = query.data?.alternates ?? [];
+  if (alternates.length === 0) return <p className="mt-2 text-xs text-cream-500">No in-stock alternatives found.</p>;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {alternates.map((alt) => (
+        <button
+          key={alt.tenantProductId}
+          type="button"
+          onClick={() => draft.addAlternate(alt, alt.buyerPrice ?? 0, 0, alt.available)}
+          className="inline-flex items-center gap-1 rounded-full border border-cream-300 bg-white px-2.5 py-1 text-xs font-medium text-cream-700 hover:bg-cream-50"
+        >
+          <Plus className="h-3 w-3" /> {alt.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function QuoteRowCard({ row, draft }: { row: QuoteRow; draft: InboxReplyQuoteDraft }) {
   const [imgError, setImgError] = useState(false);
   const qty = Number(row.qtyValue) || 0;
   const stock = enquiryStockStatus(qty, row.onHand);
-  const alternates = row.itemId ? draft.alternatesByItemId.get(row.itemId) ?? [] : [];
+  const [alternatesOpen, setAlternatesOpen] = useState(false);
   const targetLabel = buildTargetRangeLabel(row.targetMin, row.targetMax);
 
   return (
@@ -359,21 +384,26 @@ function QuoteRowCard({ row, draft }: { row: QuoteRow; draft: InboxReplyQuoteDra
       {!row.removed ? (
         <>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Buyer target</p>
-              <p className="mt-0.5 font-mono text-sm text-cream-700">{targetLabel ?? 'None given'}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Resolved price</p>
-              <p className="mt-0.5 font-mono text-sm text-cream-700">{row.resolvedPrice != null ? money(row.resolvedPrice) : '—'}</p>
-            </div>
+            {draft.showTargetPricing ? (
+              <>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Buyer target</p>
+                  <p className="mt-0.5 font-mono text-sm text-cream-700">{targetLabel ?? 'None given'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Resolved price</p>
+                  <p className="mt-0.5 font-mono text-sm text-cream-700">{row.resolvedPrice != null ? money(row.resolvedPrice) : '—'}</p>
+                </div>
+              </>
+            ) : (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Base rate</p>
+                <p className="mt-0.5 font-mono text-sm text-cream-700">{row.baseRate != null ? money(row.baseRate) : '—'}</p>
+              </div>
+            )}
             <div>
               <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Stock</p>
               <StockCell stock={stock} onHand={row.onHand} align="start" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.08em] text-cream-500">Recent sales</p>
-              {row.velocity ? <VelocityCell velocity={row.velocity} align="start" /> : <p className="text-sm text-cream-500">—</p>}
             </div>
           </div>
 
@@ -396,18 +426,17 @@ function QuoteRowCard({ row, draft }: { row: QuoteRow; draft: InboxReplyQuoteDra
             </div>
           </div>
 
-          {alternates.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {alternates.map((alt) => (
-                <button
-                  key={alt.tenantProductId}
-                  type="button"
-                  onClick={() => draft.addAlternate(alt, alt.buyerPrice ?? 0, 0, alt.available)}
-                  className="inline-flex items-center gap-1 rounded-full border border-cream-300 bg-white px-2.5 py-1 text-xs font-medium text-cream-700 hover:bg-cream-50"
-                >
-                  <Plus className="h-3 w-3" /> {alt.name}
-                </button>
-              ))}
+          {row.itemId && stock.tone !== 'ok' ? (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setAlternatesOpen((v) => !v)}
+                aria-expanded={alternatesOpen}
+                className="inline-flex items-center gap-1 rounded-full border border-warning-200 bg-warning-50 px-2.5 py-1 text-xs font-semibold text-warning-700 hover:bg-warning-100"
+              >
+                Find alternatives
+              </button>
+              {alternatesOpen ? <AlternateChips draft={draft} lineId={row.itemId} /> : null}
             </div>
           ) : null}
         </>
