@@ -271,6 +271,18 @@ Item format:
 - why: user believed stats had been reset by the restart; they had not (stats_reset 2026-10-07), nearly sending optimization effort at already-fixed queries.
 - cost: 1-2 lines, on-demand skill
 
+### 2026-10-24 feat/landing-kpis-raw — validate new read-only RPCs as plain SELECTs when yukti-dev is paused
+- [ ] target: .claude/rules/supabase-sql.md (section "Working against the hosted dev project")   change: add
+- text: `If yukti-dev is paused/unavailable, do not apply to prod to test. Write each page/band function as a single LANGUAGE sql statement with named params, substitute literals, and run the body as a bounded SELECT / EXPLAIN on prod (SELECT-class, 20 s cap, aggregates only). It catches type errors (e.g. numeric passed to a bigint arg of metrics_v4_kpi) before any migration is applied.`
+- why: dev was paused on 2026-10-24; the standalone-SELECT run of the ten new landing KPI functions on prod caught a numeric/bigint argument bug in two of them that unit tests could not (no DB in CI).
+- cost: 3 lines, path-scoped
+
+### 2026-10-24 feat/landing-kpis-raw — zsh treats `$VAR:path` as a modifier
+- [ ] target: MEMORY.md (project, feedback)   change: add
+- text: `In zsh, git show "$R:path" is parsed as a history-style modifier (:a, :p ...) and fails with "ambiguous argument". Always write git show "${R}:path" (braces).`
+- why: three failed git show/grep calls in one session (2026-10-24) before switching to braces; the error text points at a mangled path, so it is hard to diagnose.
+- cost: 1 line, on-demand
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)

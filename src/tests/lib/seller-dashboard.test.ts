@@ -215,7 +215,7 @@ describe('seller dashboard aggregation', () => {
     // admin.metrics/callouts/recent_activity, and the Metrics V2 portfolio
     // (get_metrics_v2_seller_dashboard + metrics_v2_transaction_landing) are all
     // gone — confirmed unread by the frontend (the 4 explore cards each have their
-    // own v4 RPC now; the KPI strip reads get_landing_metrics_v4 directly,
+    // own v4 RPC now; the KPI strip reads get_landing_kpis directly,
     // including the "as of" timestamp that used to come from portfolio.as_of).
     // `admin` stays a truthy `{}` marker so the client can still branch on role
     // via `dashboard.admin`. Zero RPC calls is the direct proof this dashboard

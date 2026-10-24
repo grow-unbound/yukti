@@ -47,18 +47,16 @@ describe('GET /api/tenant/locations/metrics', () => {
     });
   });
 
-  it('calls get_landing_metrics_v4 for locations this_month', async () => {
+  it('calls get_landing_kpis for locations this_month', async () => {
     const response = await GET(new NextRequest('http://localhost/api/tenant/locations/metrics'));
     expect(response.status).toBe(200);
     const body = await response.json();
 
     expect(body.cards).toHaveLength(1);
-    expect(rpcMock).toHaveBeenCalledWith('get_landing_metrics_v4', expect.objectContaining({
+    expect(rpcMock).toHaveBeenCalledWith('get_landing_kpis', expect.objectContaining({
       p_tenant_id: 'tenant-1',
       p_page_key: 'locations',
       p_period_key: 'this_month',
-      p_scope_kind: 'tenant',
-      p_scope_id: null,
     }));
   });
 
