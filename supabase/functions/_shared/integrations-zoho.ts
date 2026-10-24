@@ -33,6 +33,21 @@ export interface ZohoConnectionMeta {
   accounts_base_url: string;
 }
 
+/**
+ * Zoho's contact-scoped contact-person endpoint omits `contact_id` from each
+ * item. Preserve a provider-supplied value, but otherwise attach the parent
+ * already known from `/contacts/{contactId}/contactpersons`.
+ */
+export function attachParentContactId(
+  records: Record<string, unknown>[],
+  contactId: string,
+): Record<string, unknown>[] {
+  return records.map((record) => ({
+    ...record,
+    contact_id: record.contact_id ?? contactId,
+  }));
+}
+
 export class ZohoApiError extends Error {
   status: number;
   code?: string | number;

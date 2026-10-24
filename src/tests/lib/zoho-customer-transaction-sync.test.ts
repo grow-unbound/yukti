@@ -242,6 +242,32 @@ describe('zoho customer and transaction persistence', () => {
     putObjectJsonMock.mockClear();
   });
 
+  it('persists contact persons by buyer external_ref when the customer map is missing', async () => {
+    const admin = createAdminStub({
+      tableRows: {
+        buyers: [{ id: 'buyer-1', tenant_id: 'tenant-1', external_ref: 'CUST-1', deleted_at: null }],
+      },
+    });
+
+    const result = await persistZohoEntityPage(
+      admin.client as never,
+      'tenant-1',
+      'user-1',
+      'integration-1',
+      'contact_persons',
+      'zoho_books',
+      [{ contact_id: 'CUST-1', contact_person_id: 'CP-1', first_name: 'Asha' }],
+    );
+
+    expect(result.created).toBe(1);
+    const buyerUsersCall = admin.rpcCalls.find((call) => (
+      call.fn === 'bulk_persist_jsonb_records' && call.args.p_table === 'buyer_users'
+    ));
+    expect(buyerUsersCall?.args.p_rows).toEqual([
+      expect.objectContaining({ buyer_id: 'buyer-1', external_ref: 'CP-1' }),
+    ]);
+  });
+
   it('dedupes customer, contact person, and price list assignment upserts within a single page', async () => {
     const admin = createAdminStub({
       tableRows: {
