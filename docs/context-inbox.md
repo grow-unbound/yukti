@@ -259,7 +259,6 @@ Item format:
 - text: `scripts/reconcile-zoho-webhooks.ts reads .env.local from the repo root (absent in worktrees) and targets whatever SUPABASE_URL it finds (dev by default); run with --dry-run first and pass prod URL/service key via env only for an authorized prod run.`
 - why: session needed to re-register Zoho webhooks on prod; worktree has no .env.local and .env.local points at yukti-dev.
 - cost: 1 line, path-scoped
-
 ### 2026-10-24 fix/whatsapp-provider-message-id-index — Oct 24 "DB choking" outage was the Free-plan egress cap, not the DB
 - [ ] target: MEMORY.md (prod incident note) + .claude/skills/prod-db-health   change: add
 - text: `2026-10-24 ~07:35 UTC prod API returned 504/522 on /rest/v1 and /auth/v1 while Database stayed Healthy, CPU/IOPS/connections flat. Cause: Free-plan egress quota 5.001/5 GB (log query 413%). Fixed by upgrading yukti org to Pro (250 GB egress); recovered ~09:00 UTC without a restart. In prod-db-health add step 0: check Usage page (egress/log quotas) and Project Overview per-service health (PostgREST/Auth Unhealthy + DB Healthy = not a DB stall) before recommending a restart.`
