@@ -197,9 +197,9 @@ async function logWebhookError(
     stage: string; // e.g., 'persist', 'echo_guard', 'validation'
     reasonCode: string;
     message: string;
-    // 'skip': DB row only (expected/operational noise, e.g. Zoho posting to a
-    // deliberately disabled webhook). 'warning': Zoho retries these itself
-    // (503), so they are not pageable. Default stays 'error'.
+    // 'skip': DB row only (expected noise, e.g. Zoho posting to a deliberately
+    // disabled webhook). Default is 'error' — persist slowness/timeouts stay
+    // pageable: they signal prod DB saturation.
     sentry?: 'error' | 'warning' | 'skip';
   },
 ): Promise<void> {
@@ -573,7 +573,6 @@ Deno.serve(async (req: Request) => {
           ? 'LOCK_TIMEOUT'
           : isTransientPersistError(err) ? 'TRANSIENT_DB_ERROR' : 'EXCEPTION',
         message: String(err),
-        sentry: err instanceof LockTimeoutError || isTransientPersistError(err) ? 'warning' : 'error',
       });
     }
     if (err instanceof LockTimeoutError) {
