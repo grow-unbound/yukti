@@ -41,7 +41,9 @@ vi.mock('@/lib/server/warehouse-inventory', () => ({
 }));
 
 describe('loadEnquiryTriage velocity', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { resetVelocityCacheForTests } = await import('@/lib/server/load-enquiry-triage');
+    resetVelocityCacheForTests();
     rpcCalls.length = 0;
     fromTables.length = 0;
     rpcResult = {
@@ -89,6 +91,29 @@ describe('loadEnquiryTriage velocity', () => {
 
     expect(payload?.lines[0]?.velocity).toEqual({ unitsPerWeek: 0, daysCover: null, lastInvoiceAt: null });
     expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('serves repeat triage views from the per-tenant cache instead of re-running the RPC', async () => {
+    const { loadEnquiryTriage } = await import('@/lib/server/load-enquiry-triage');
+    await loadEnquiryTriage(db as never, TENANT, ESTIMATE);
+    const second = await loadEnquiryTriage(db as never, TENANT, ESTIMATE);
+
+    expect(rpcCalls.filter((c) => c.fn === 'get_product_velocity_90d')).toHaveLength(1);
+    expect(second?.lines[0]?.velocity).toEqual({
+      unitsPerWeek: 7,
+      daysCover: 20,
+      lastInvoiceAt: '2026-10-05T04:30:00.000Z',
+    });
+  });
+
+  it('does not share cached velocity across tenants', async () => {
+    const { loadEnquiryTriage } = await import('@/lib/server/load-enquiry-triage');
+    await loadEnquiryTriage(db as never, TENANT, ESTIMATE);
+    rows.estimates = [{ ...(rows.estimates[0] as Record<string, unknown>), tenant_id: 'tenant-2' }];
+    await loadEnquiryTriage(db as never, 'tenant-2', ESTIMATE);
+
+    expect(rpcCalls.filter((c) => c.fn === 'get_product_velocity_90d').map((c) => c.args.p_tenant_id))
+      .toEqual([TENANT, 'tenant-2']);
   });
 
   it('returns header adjustments, line discount and product image so the panel needs no estimate-detail fetch', async () => {
