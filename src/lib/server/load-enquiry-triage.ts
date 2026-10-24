@@ -27,11 +27,28 @@ type VelocitySnapshot = {
 type VelocityRow = { invoice_units_90d: number; last_invoice_at: string | null };
 
 const VELOCITY_RPC_CHUNK = 500; // get_product_velocity_90d rejects > 1000 ids per call
+const VELOCITY_CACHE_TTL_MS = 10 * 60 * 1000;
+const VELOCITY_CACHE_MAX_ENTRIES = 5000;
+
+// Per-instance, tenant-scoped cache. Keys include tenantId so one tenant never reads another's rows.
+// `null` marks a product the RPC did not return, so it is not re-queried inside the TTL.
+const velocityCache = new Map<string, { row: VelocityRow | null; expiresAt: number }>();
+
+function rememberVelocity(tenantId: string, productId: string, row: VelocityRow | null) {
+  if (velocityCache.size >= VELOCITY_CACHE_MAX_ENTRIES) velocityCache.clear();
+  velocityCache.set(`${tenantId}:${productId}`, { row, expiresAt: Date.now() + VELOCITY_CACHE_TTL_MS });
+}
+
+/** Test hook: drop cached velocity so each test controls its own RPC calls. */
+export function resetVelocityCacheForTests() {
+  velocityCache.clear();
+}
 
 /**
  * ~90-day invoiced units + last invoice per product via `app.get_product_velocity_90d` (product
- * period summary, month buckets), in chunks. A failure degrades to "no velocity" for the enquiry
- * panel rather than failing the triage payload.
+ * period summary, month buckets), in chunks. Results are cached per tenant+product for
+ * VELOCITY_CACHE_TTL_MS, so repeat triage views don't re-run the RPC (2.1 s mean, 59 s max on prod).
+ * A failure degrades to "no velocity" for the enquiry panel rather than failing the triage payload.
  */
 async function fetchProductVelocityRows(
   d: DbClient,
@@ -41,30 +58,49 @@ async function fetchProductVelocityRows(
   const out = new Map<string, VelocityRow>();
   if (productIds.length === 0) return out;
 
+  const now = Date.now();
+  const misses: string[] = [];
+  for (const id of productIds) {
+    const hit = velocityCache.get(`${tenantId}:${id}`);
+    if (hit && hit.expiresAt > now) {
+      if (hit.row) out.set(id, hit.row);
+    } else {
+      misses.push(id);
+    }
+  }
+  if (misses.length === 0) return out;
+
   const chunks: string[][] = [];
-  for (let i = 0; i < productIds.length; i += VELOCITY_RPC_CHUNK) {
-    chunks.push(productIds.slice(i, i + VELOCITY_RPC_CHUNK));
+  for (let i = 0; i < misses.length; i += VELOCITY_RPC_CHUNK) {
+    chunks.push(misses.slice(i, i + VELOCITY_RPC_CHUNK));
   }
 
   const results = await Promise.all(chunks.map((chunk) =>
     d.schema('app').rpc('get_product_velocity_90d', { p_tenant_id: tenantId, p_product_ids: chunk }),
   ));
 
-  for (const { data, error } of results) {
+  results.forEach(({ data, error }, index) => {
     if (error) {
       console.error('[load-enquiry-triage] get_product_velocity_90d', error);
-      continue;
+      return;
     }
+    const returned = new Set<string>();
     for (const row of (data ?? []) as Array<Record<string, unknown>>) {
       const id = asString(row.tenant_product_id);
       if (!id) continue;
       const units = Number(row.invoice_units_90d ?? 0);
-      out.set(id, {
+      const value = {
         invoice_units_90d: Number.isFinite(units) ? units : 0,
         last_invoice_at: asString(row.last_invoice_at),
-      });
+      };
+      returned.add(id);
+      out.set(id, value);
+      rememberVelocity(tenantId, id, value);
     }
-  }
+    for (const id of chunks[index]) {
+      if (!returned.has(id)) rememberVelocity(tenantId, id, null);
+    }
+  });
   return out;
 }
 

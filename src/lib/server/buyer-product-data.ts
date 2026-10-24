@@ -26,6 +26,7 @@ import type {
 import { isPendingBuyerCatalogSession } from '@/lib/server/buyer-pending-guard';
 import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
 import { getCampaignItemsForProducts } from '@/lib/server/campaign-items-cache';
+import { dedupeInflight } from '@/lib/server/inflight-dedupe';
 import {
   getCachedGuestPricingContext,
   resolveGuestPricingContext,
@@ -800,7 +801,25 @@ type FacetScopeParams = {
   shareToken?: string;
 };
 
-async function resolveFacetScopeRows(params: FacetScopeParams): Promise<BuyerFacetRpcRow[]> {
+/**
+ * Categories and brands come from the same facet RPC, and the home page / cold caches request both
+ * at once: share one in-flight RPC per (client, scope) instead of paying for it twice.
+ */
+function resolveFacetScopeRows(params: FacetScopeParams): Promise<BuyerFacetRpcRow[]> {
+  const key = JSON.stringify([
+    params.tenantId,
+    params.allowedTenantBrandIds === undefined || params.allowedTenantBrandIds === null
+      ? null
+      : [...params.allowedTenantBrandIds].sort(),
+    params.categoryId ?? '',
+    params.brandId ?? '',
+    params.requestedCampaignId ?? '',
+    params.shareToken ?? '',
+  ]);
+  return dedupeInflight(params.db, key, () => loadFacetScopeRows(params));
+}
+
+async function loadFacetScopeRows(params: FacetScopeParams): Promise<BuyerFacetRpcRow[]> {
   const {
     db,
     tenantId,
