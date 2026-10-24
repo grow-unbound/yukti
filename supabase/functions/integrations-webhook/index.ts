@@ -197,6 +197,10 @@ async function logWebhookError(
     stage: string; // e.g., 'persist', 'echo_guard', 'validation'
     reasonCode: string;
     message: string;
+    // 'skip': DB row only (expected/operational noise, e.g. Zoho posting to a
+    // deliberately disabled webhook). 'warning': Zoho retries these itself
+    // (503), so they are not pageable. Default stays 'error'.
+    sentry?: 'error' | 'warning' | 'skip';
   },
 ): Promise<void> {
   try {
@@ -220,8 +224,13 @@ async function logWebhookError(
   // auth_failed branch above). DB row is queryable; Sentry is the "someone
   // gets paged/notified" half — one place to see this instead of relying on
   // someone thinking to check integration_webhook_errors.
+  const sentryMode = opts.sentry ?? 'error';
+  if (sentryMode === 'skip') return;
   await captureSentryError(`[integrations-webhook] ${opts.stage}/${opts.reasonCode}: ${opts.message}`, {
-    level: 'error',
+    level: sentryMode,
+    // One Sentry issue per (stage, reason, entity) — messages embed row ids,
+    // durations and gateway HTML, which split a single failure into many issues.
+    fingerprint: ['integrations-webhook', opts.stage, opts.reasonCode, opts.entityType],
     tags: {
       integration: 'zoho',
       entity_type: opts.entityType,
@@ -296,6 +305,9 @@ Deno.serve(async (req: Request) => {
           stage: 'routing',
           reasonCode: 'webhook_inactive',
           message: `Webhook row is_active=${webhook.is_active} status=${webhook.status} — Zoho is still posting to a disabled/removed endpoint.`,
+          // Expected after a webhook is disabled until the Zoho-side
+          // subscription is removed; the DB row is the audit trail.
+          sentry: 'skip',
         });
       }
       return ok('inactive');
@@ -561,6 +573,7 @@ Deno.serve(async (req: Request) => {
           ? 'LOCK_TIMEOUT'
           : isTransientPersistError(err) ? 'TRANSIENT_DB_ERROR' : 'EXCEPTION',
         message: String(err),
+        sentry: err instanceof LockTimeoutError || isTransientPersistError(err) ? 'warning' : 'error',
       });
     }
     if (err instanceof LockTimeoutError) {

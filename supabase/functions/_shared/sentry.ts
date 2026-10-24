@@ -33,6 +33,7 @@ export async function captureSentryError(
   message: string,
   opts: {
     level?: 'error' | 'warning' | 'info';
+    fingerprint?: string[];
     tags?: Record<string, string>;
     extra?: Record<string, unknown>;
   } = {},
@@ -49,6 +50,7 @@ export async function captureSentryError(
       body: JSON.stringify({
         message,
         level: opts.level ?? 'error',
+        ...(opts.fingerprint ? { fingerprint: opts.fingerprint } : {}),
         platform: 'other',
         environment: ENVIRONMENT,
         timestamp: Date.now() / 1000,

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { describeDbError } from '@/lib/db-error';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import type { Session, User } from '@supabase/supabase-js';
@@ -224,7 +225,7 @@ async function loadTenantBuyerAppMetadata(tenantIds: string[]): Promise<Map<stri
   ]);
 
   if (tenantSettingsRes.error || tenantsRes.error) {
-    throw new Error(`Failed to load tenant settings: ${tenantSettingsRes.error?.message ?? tenantsRes.error?.message}`);
+    throw new Error(`Failed to load tenant settings: ${describeDbError(tenantSettingsRes.error ?? tenantsRes.error)}`);
   }
 
   const tenantSettingsById = new Map(
@@ -316,7 +317,7 @@ export async function findBuyerLoginCandidates(phone: string): Promise<BuyerLogi
     .rpc('find_buyer_login_candidates', { p_phone: normalizedPhone });
 
   if (error) {
-    throw new Error(`Buyer login candidate lookup failed: ${error.message}`);
+    throw new Error(`Buyer login candidate lookup failed: ${describeDbError(error)}`);
   }
 
   const tenantIds = new Set<string>();
@@ -1274,7 +1275,7 @@ export async function findSellerLoginCandidates(phone: string): Promise<LoginOtp
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
   }).rpc('find_seller_candidates_by_phone', { p_phone: normalizedPhone });
 
-  if (error) throw new Error(`Seller lookup failed: ${error.message}`);
+  if (error) throw new Error(`Seller lookup failed: ${describeDbError(error)}`);
 
   const rows = (data ?? []) as Array<{
     user_id: string;
