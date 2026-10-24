@@ -23,13 +23,16 @@ interface CandidatesPayload {
   results: WhatsAppBuyerSearchResult[];
 }
 
-export function useWhatsAppBuyerCandidates(entryId: string, search: string, enabled: boolean) {
+/** The email inbox reuses these hooks; only the route segment differs. */
+export type BuyerLinkChannel = 'whatsapp' | 'email';
+
+export function useWhatsAppBuyerCandidates(entryId: string, search: string, enabled: boolean, channel: BuyerLinkChannel = 'whatsapp') {
   return useQuery({
-    queryKey: ['inbox-whatsapp-buyer-candidates', entryId, search],
+    queryKey: [`inbox-${channel}-buyer-candidates`, entryId, search],
     enabled,
     queryFn: async () => {
       const res = await apiFetch(
-        `/api/tenant/entries/${entryId}/whatsapp-buyer-candidates?q=${encodeURIComponent(search)}`,
+        `/api/tenant/entries/${entryId}/${channel}-buyer-candidates?q=${encodeURIComponent(search)}`,
         { fresh: true },
       );
       if (!res.ok) throw new Error('Failed to load buyers');
@@ -41,11 +44,11 @@ export function useWhatsAppBuyerCandidates(entryId: string, search: string, enab
   });
 }
 
-export function useLinkWhatsAppBuyer() {
+export function useLinkWhatsAppBuyer(channel: BuyerLinkChannel = 'whatsapp') {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ entryId, buyerId }: { entryId: string; buyerId: string }) => {
-      const res = await apiPost(`/api/tenant/entries/${entryId}/whatsapp-buyer`, { buyer_id: buyerId });
+      const res = await apiPost(`/api/tenant/entries/${entryId}/${channel}-buyer`, { buyer_id: buyerId });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload.error ?? 'Failed to link buyer');

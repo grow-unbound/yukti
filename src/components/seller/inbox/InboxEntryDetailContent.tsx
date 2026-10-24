@@ -23,6 +23,7 @@ import { InboxApprovalDocuments } from './InboxApprovalDocuments';
 import { DuesSectionList } from './InboxCollectionGroupCard';
 import { InboxOrderPanel } from './InboxOrderPanel';
 import { WhatsAppBuyerLinker } from './WhatsAppBuyerLinker';
+import { EmailMessagePanel } from './EmailMessagePanel';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
 
 const InboxEnquiryPanel = dynamic(
@@ -268,6 +269,8 @@ export function InboxEntryDetailContent({ entry }: { entry: InboxEntry }) {
         <InboxOrderPanel entry={entry} />
       ) : entry.entry_type === 'whatsapp_buyer_message' ? (
         <WhatsAppMessagePanel entry={entry} />
+      ) : entry.entry_type === 'email_buyer_message' ? (
+        <EmailMessagePanel entry={entry} />
       ) : null}
     </div>
   );

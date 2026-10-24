@@ -1,7 +1,7 @@
 export type InboxEntryType =
   | 'business_approval' | 'new_user_login' | 'new_enquiry' | 'new_order_confirmation'
   | 'order_dispatch_needed' | 'invoice_due' | 'invoice_overdue' | 'credit_limit_breach'
-  | 'whatsapp_buyer_message';
+  | 'whatsapp_buyer_message' | 'email_buyer_message';
 export type InboxEntryStatus = 'new' | 'opened' | 'in_progress' | 'waiting' | 'resolved';
 export type InboxTimeBucket = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'this_quarter' | 'previous';
 
