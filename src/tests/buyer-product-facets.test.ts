@@ -21,6 +21,18 @@ function createRpcDb(rows: unknown[]) {
 }
 
 describe('buyer product facet SQL pushdown', () => {
+  it('shares one facet RPC when categories and brands load concurrently on the same client', async () => {
+    const { db, rpc } = createRpcDb([]);
+    const params = { db, tenantId: 'tenant-a', allowedTenantBrandIds: ['b2', 'b1'] };
+
+    await Promise.all([
+      fetchBuyerCategories(params),
+      fetchBuyerBrands({ ...params, allowedTenantBrandIds: ['b1', 'b2'] }),
+    ]);
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
   it('passes campaign, visibility, brand, and scalar category scope to one bounded RPC', async () => {
     const { db, rpc } = createRpcDb([
       {
