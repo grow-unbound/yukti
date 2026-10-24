@@ -1,0 +1,14 @@
+-- Index the WhatsApp webhook status lookup `app.whatsapp_messages WHERE provider_message_id = $1 LIMIT 1`.
+-- It is the #8 statement by total time on prod (12k calls) and had no supporting index, so every call
+-- sequentially scanned the table. The table is small today (~7.7k rows), so the gain now is modest;
+-- this keeps the lookup O(log n) as message volume grows.
+--
+-- Partial (provider_message_id IS NOT NULL): ~3 % of rows have no provider id yet (queued / failed
+-- before send), and `provider_message_id = $1` implies NOT NULL, so the planner can still use it.
+-- Not UNIQUE: provider ids are not guaranteed unique across re-sends, and this must not start
+-- rejecting webhook writes.
+--
+-- CONCURRENTLY: avoids an AccessExclusiveLock against webhook/send writes. Single statement, no
+-- BEGIN/COMMIT, because CREATE INDEX CONCURRENTLY cannot run in a transaction block or pipelined batch
+-- under `supabase db push` -- same pattern as 20260713144545_idx_buyer_app_activity_buyer_id_fk_concurrent.sql.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_messages_provider_message_id ON app.whatsapp_messages (provider_message_id) WHERE provider_message_id IS NOT NULL;
