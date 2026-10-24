@@ -4,6 +4,7 @@
  * All persisters are idempotent (upsert-based) so re-runs are safe.
  */
 
+import { describeDbError } from '../../../src/lib/db-error.ts';
 import type { ZohoAdapter } from './integrations-zoho.ts';
 import { ZOHO_DETAIL_FETCH_CONCURRENCY, ZOHO_DETAIL_FETCH_BATCH_PACE_MS } from './integrations-zoho.ts';
 import type { ZohoIntegrationTypeId } from '../../../src/lib/integrations/contracts.ts';
@@ -642,7 +643,7 @@ async function loadFieldMappings(
     .eq('entity_type', entityType)
     .eq('is_active', true);
 
-  if (error) throw new Error(`loadFieldMappings failed: ${error.message}`);
+  if (error) throw new Error(`loadFieldMappings failed: ${describeDbError(error)}`);
   return (data ?? []) as TenantFieldMappingRow[];
 }
 

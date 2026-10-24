@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendPasswordRecoveryEmail } from '@/lib/server/email';
 import { requireSupplierWorkspaceSurface } from '@/lib/server/auth-surface-server';
@@ -36,10 +37,16 @@ export async function POST(request: NextRequest) {
   });
 
   if (!error && data.properties?.action_link) {
-    await sendPasswordRecoveryEmail({
-      to: normalizedEmail,
-      resetUrl: data.properties.action_link,
-    });
+    try {
+      await sendPasswordRecoveryEmail({
+        to: normalizedEmail,
+        resetUrl: data.properties.action_link,
+      });
+    } catch (sendError) {
+      // Never 500 here: a failure only for existing accounts would reveal
+      // which emails are registered (YUKTI-APP-18: unverified Resend domain).
+      Sentry.captureException(sendError, { tags: { flow: 'forgot-password' } });
+    }
   }
 
   return NextResponse.json({ success: true });

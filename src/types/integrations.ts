@@ -111,7 +111,9 @@ export type IntegrationAuthField = z.infer<typeof IntegrationAuthFieldSchema>;
 const ManualIntegrationAuthSchema = z
   .object({
     oauth: z.literal(false).default(false),
-    fields: z.array(IntegrationAuthFieldSchema).min(1),
+    // Empty is valid: integrations with no credentials to collect (e.g.
+    // email_forwarding) — min(1) crashed /settings/integrations (YUKTI-APP-1F).
+    fields: z.array(IntegrationAuthFieldSchema).default([]),
   })
   .strict();
 
