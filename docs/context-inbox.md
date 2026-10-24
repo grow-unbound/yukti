@@ -259,6 +259,17 @@ Item format:
 - text: `scripts/reconcile-zoho-webhooks.ts reads .env.local from the repo root (absent in worktrees) and targets whatever SUPABASE_URL it finds (dev by default); run with --dry-run first and pass prod URL/service key via env only for an authorized prod run.`
 - why: session needed to re-register Zoho webhooks on prod; worktree has no .env.local and .env.local points at yukti-dev.
 - cost: 1 line, path-scoped
+### 2026-10-24 fix/whatsapp-provider-message-id-index — Oct 24 "DB choking" outage was the Free-plan egress cap, not the DB
+- [ ] target: MEMORY.md (prod incident note) + .claude/skills/prod-db-health   change: add
+- text: `2026-10-24 ~07:35 UTC prod API returned 504/522 on /rest/v1 and /auth/v1 while Database stayed Healthy, CPU/IOPS/connections flat. Cause: Free-plan egress quota 5.001/5 GB (log query 413%). Fixed by upgrading yukti org to Pro (250 GB egress); recovered ~09:00 UTC without a restart. In prod-db-health add step 0: check Usage page (egress/log quotas) and Project Overview per-service health (PostgREST/Auth Unhealthy + DB Healthy = not a DB stall) before recommending a restart.`
+- why: triage first read it as the Oct 7 memory stall pattern; dashboard Usage banner + flat resource charts at onset disproved it. A restart would have cost downtime and fixed nothing.
+- cost: 3 lines MEMORY.md (on-demand) + 1 skill line
+
+### 2026-10-24 fix/whatsapp-provider-message-id-index — pg_stat_statements survives restarts; totals are cumulative
+- [ ] target: .claude/skills/prod-db-health (step 4)   change: add
+- text: `pg_stat_statements persists across restarts and compute upgrades. Check select stats_reset from pg_stat_statements_info before trusting means/max: the 2026-10-07 baseline mixed pre-fix queries and stall periods (velocity RPC showed 2.5 s mean; live EXPLAIN ANALYZE after the Oct 15 fix was ~50 ms). Judge per-call cost with EXPLAIN (ANALYZE, BUFFERS) of the RPC on the live tenant; resetting stats is a prod write.`
+- why: user believed stats had been reset by the restart; they had not (stats_reset 2026-10-07), nearly sending optimization effort at already-fixed queries.
+- cost: 1-2 lines, on-demand skill
 
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
