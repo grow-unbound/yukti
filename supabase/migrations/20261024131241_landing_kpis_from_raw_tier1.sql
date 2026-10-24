@@ -186,6 +186,8 @@ CREATE OR REPLACE FUNCTION app._landing_kpis_locations(
 ) RETURNS jsonb
 LANGUAGE sql STABLE SET search_path TO 'pg_catalog', 'app'
 AS $function$
+  -- Scoping matches the old summaries: invoiced_sales/top-80 are per existing location (invoices with no or a deleted
+  -- location drop out); open_demand and overdue use tenant totals with a distinct-location count.
   WITH loc AS (
     SELECT i.location_id, sum(i.total_amount) AS v, count(*) AS c
     FROM app.invoices i
@@ -245,6 +247,8 @@ AS $function$
     SELECT count(*) AS total, count(*) FILTER (WHERE b.buyer_app_enabled) AS enabled
     FROM app.buyers b WHERE b.tenant_id = p_tenant_id AND b.deleted_at IS NULL
   ), dem AS (
+    -- buyers = distinct estimate buyers + distinct order buyers (a buyer with both counts twice): deliberately the
+    -- same as the old app_estimate_buyer_count + app_order_buyer_count; demand_buyers below is the de-duplicated set.
     SELECT
       (COALESCE((SELECT sum(total_amount) FROM est WHERE is_app), 0) + COALESCE((SELECT sum(total_amount) FROM ord WHERE is_app), 0)) AS v,
       ((SELECT count(DISTINCT buyer_id) FROM est WHERE is_app) + (SELECT count(DISTINCT buyer_id) FROM ord WHERE is_app)) AS buyers,
@@ -316,7 +320,7 @@ AS $function$
            count(DISTINCT pli.tenant_product_id) FILTER (WHERE pli.price < tp.base_selling_price) AS below_base
     FROM app.price_list_items pli
     JOIN app.price_lists l ON l.id = pli.price_list_id
-    JOIN app.tenant_products tp ON tp.id = pli.tenant_product_id
+    JOIN app.tenant_products tp ON tp.id = pli.tenant_product_id AND tp.tenant_id = p_tenant_id AND tp.deleted_at IS NULL
     WHERE l.tenant_id = p_tenant_id AND l.deleted_at IS NULL AND pli.deleted_at IS NULL
       AND l.is_active AND l.valid_from <= p_now AND (l.valid_to IS NULL OR l.valid_to >= p_now)
   ), pb AS (

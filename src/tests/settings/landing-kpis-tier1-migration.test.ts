@@ -17,6 +17,8 @@ describe('landing KPIs tier 1 (raw tables)', () => {
   it('dispatches every tier-1 page and rejects the rest', () => {
     for (const page of PAGES) expect(code).toContain(`WHEN '${page}' THEN app._landing_kpis_${page}(`);
     expect(code).toContain("'landing_page_unsupported:%'");
+    expect(code).toContain("'landing_period_invalid:%'");
+    expect(code).toContain("'landing_identity_required'");
     for (const page of ['products', 'categories', 'brands', 'warehouses']) expect(code).not.toContain(`WHEN '${page}' THEN`);
   });
 
