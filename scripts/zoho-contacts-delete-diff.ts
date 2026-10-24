@@ -18,8 +18,13 @@
 //
 // Usage:
 //   npx tsx scripts/zoho-contacts-delete-diff.ts <tenant_integration_id> \
-//     [--env <path to .env.local>] [--out <file.json>] [--pause-ms 600] \
-//     [--max-checks 300] [--filter-by Status.All] [--no-names]
+//     --expect-ref <supabase project ref> [--env <path to .env.local>] \
+//     [--out <file.json>] [--pause-ms 600] [--max-checks 300] \
+//     [--filter-by Status.All] [--no-names]
+//
+// --expect-ref is required: the script aborts before any read unless the
+// SUPABASE_URL in the loaded env belongs to that project, so a stale or wrong
+// .env.local can never silently point it at the wrong database.
 //
 // The output file defaults to the OS temp dir (it contains business names;
 // never commit it — this repo is public).
@@ -37,7 +42,7 @@ type JsonRecord = Record<string, unknown>;
 
 function usage(): never {
   console.error(
-    'Usage: npx tsx scripts/zoho-contacts-delete-diff.ts <tenant_integration_id> ' +
+    'Usage: npx tsx scripts/zoho-contacts-delete-diff.ts <tenant_integration_id> --expect-ref <project ref> ' +
       '[--env <path>] [--out <file.json>] [--pause-ms 600] [--max-checks 300] ' +
       '[--filter-by Status.All] [--no-names]',
   );
@@ -64,6 +69,8 @@ if (process.argv.includes('--help')) usage();
 const tenantIntegrationId = process.argv[2];
 if (!tenantIntegrationId || tenantIntegrationId.startsWith('--')) usage();
 
+const EXPECT_REF = flagValue('--expect-ref');
+if (!EXPECT_REF) usage();
 const PAUSE_MS = numberFlag('--pause-ms', 600);
 const MAX_CHECKS = numberFlag('--max-checks', 300);
 const FILTER_BY = flagValue('--filter-by') ?? 'Status.All';
@@ -96,6 +103,11 @@ const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABAS
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   throw new Error('SUPABASE_URL / SUPABASE_SERVICE_KEY missing (use --env <path to .env.local>)');
+}
+
+const supabaseRef = new URL(SUPABASE_URL).hostname.split('.')[0];
+if (supabaseRef !== EXPECT_REF) {
+  throw new Error(`SUPABASE_URL points at project "${supabaseRef}", expected "${EXPECT_REF}"; aborting before any read`);
 }
 
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -277,8 +289,7 @@ async function main() {
     throw new Error('Only Zoho integrations are supported');
   }
 
-  // Print only the host's project ref so the operator can eyeball dev vs prod.
-  const projectRef = new URL(SUPABASE_URL).hostname.split('.')[0];
+  const projectRef = supabaseRef;
   console.log(`[diff] project_ref=${projectRef} integration=${integration.id} type=${integration.integration_type_id} (read-only)`);
 
   const { data: secretData, error: secretError } = await db.schema('app').rpc('get_tenant_integration_runtime_secret', {
@@ -310,6 +321,16 @@ async function main() {
     throw new Error('Zoho returned 0 contacts; refusing to treat every buyer as deleted');
   }
 
+  // A wrong org id or API base would 404 every detail call and make every buyer
+  // look deleted. Prove 404 is meaningful first: a contact from the list must be 200.
+  const probeId = zohoIds.values().next().value as string;
+  const probeUrl = new URL(`${apiBaseUrl}/contacts/${encodeURIComponent(probeId)}`);
+  probeUrl.searchParams.set('organization_id', orgId);
+  const probe = await zohoGet(probeUrl, accessToken);
+  if (probe.status !== 200 || probe.json.code !== 0) {
+    throw new Error(`Detail-endpoint probe for a listed contact returned HTTP ${probe.status}; 404s would be untrustworthy, aborting`);
+  }
+
   const buyers = await fetchActiveBuyers(integration.tenant_id as string);
   const candidates = buyers.filter((buyer) => !zohoIds.has(buyer.external_ref));
   const buyerRefs = new Set(buyers.map((buyer) => buyer.external_ref));
@@ -336,7 +357,8 @@ async function main() {
     writeFileSync(OUT_PATH, JSON.stringify({ summary, aborted: 'too_many_candidates', unconfirmed }, null, 2), { mode: 0o600 });
     console.error(
       `[diff] ${candidates.length} candidates exceeds --max-checks ${MAX_CHECKS}; not hitting Zoho per-contact. ` +
-        `Unconfirmed list written to ${OUT_PATH}. Check --filter-by / the contacts list before raising the cap.`,
+        `Unconfirmed list written to ${OUT_PATH} (contains business names; do not commit). ` +
+        'Check --filter-by / the contacts list before raising the cap.',
     );
     process.exitCode = 2;
     return;

@@ -15,6 +15,18 @@ Item format:
 
 ## Pending
 
+### 2026-10-24 claude/zoho-webhook-failures-78e279 — Zoho webhook triage facts (retention, soft-deleted rows, no payload on routing errors)
+- [ ] target: docs/db/recipes.md   change: add
+- text: "Zoho webhook triage (prod): `app.integration_webhook_events` is purged after 7 days, so per-entity daily event counts only reach back a week. Routing failures (`webhook_inactive`) land in `app.integration_webhook_errors` with `integration_webhook_id` but no contact id or payload. `loadWebhookByToken` ignores `deleted_at`, so soft-deleted webhook rows still resolve and can still be live (prod 2026-10-24: the items add_edit row `371b6c09…` was soft-deleted yet `is_active` and receiving events); never add a `deleted_at` filter there before checking `where deleted_at is not null and is_active`. Delivery check: compare events/day for the suspect entity against invoices/estimates; zero vs hundreds means Zoho is not delivering to the active rows, whatever `integration_webhooks.status` says."
+- why: Oct 24 review. Without these, `webhook_inactive` looked like harmless noise and the dropped contacts events (zero for 7 days) went unnoticed; the obvious one-line lookup fix would have silently broken items sync.
+- cost: 1 paragraph, path-scoped
+
+### 2026-10-24 claude/zoho-webhook-failures-78e279 — Daily Zoho incremental sync window is IST midnight, and "completed, 0 upserted" can mean skipped
+- [ ] target: docs/db/recipes.md   change: add
+- text: "Incremental Zoho syncs send `last_modified_time=<since date>T00:00:00+0530` (adapter, `integrations-zoho.ts` fetchPage), i.e. 18:30 UTC the previous day, so the 19:00 UTC daily runs overlap ~30 min and leave no coverage gap. A phase can finish `completed` with `records_synced = 0`; read `integration_sync_jobs.summary.note` (e.g. `37 contact persons fetched, 0 upserted` = every record skipped, not 'nothing changed')."
+- why: Oct 24: I first reported a 19:00-24:00 UTC coverage gap that did not exist, and contact-persons incremental runs showed healthy for 26 days while upserting nothing.
+- cost: 1 paragraph, path-scoped
+
 ### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — Supabase "Cached Egress" is 0 by design; egress = PostgREST payload bytes
 - [ ] target: MEMORY.md   change: add
 - text: Free-plan egress alarms: Cached Egress stays 0 because every PostgREST/RPC reply is `cf_cache_status: DYNAMIC` (service-role POSTs from Vercel; only Storage CDN is cacheable, images are on R2). The lever is bytes per call: one `load_products_scoped(limit 40)` page is ~56-60 KB (~1.5 KB/row, mostly JSON keys + r2 key columns); `.rpc().select(cols)` trims only ~7%. Bigger wins need per-row dedupe (brand/category/family fields) or fewer/smaller pages.
