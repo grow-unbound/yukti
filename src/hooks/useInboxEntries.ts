@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiFetch, apiPatch, apiPost } from '@/lib/api-fetch';
 import {
   NAVIGATION_QUERY_STALE_TIME,
@@ -11,7 +11,7 @@ import {
 import { dedupeApprovalEntries } from '@/lib/inbox/inbox-grouping';
 import type { OutstandingInvoice } from '@/lib/inbox/inbox-detail-groups';
 import type { InboxEntry } from '@/lib/inbox/inbox-types';
-import type { EnquiryTriagePayload } from '@/lib/inbox/enquiry-triage';
+import type { EnquiryLineAlternatesPayload, EnquirySummary, EnquiryTriagePayload } from '@/lib/inbox/enquiry-triage';
 
 export interface EntryHistoryEvent {
   id: string;
@@ -426,33 +426,44 @@ export function useEnquiryTriage(entryId: string, enabled = true) {
 }
 
 /**
- * Batch variant of `useEnquiryTriage` for the Inbox list row -- one row per
- * buyer, so enriching a handful of rows (this list is bounded to "today's"
- * open items, not a paginated catalog) with item count / at-risk needs the
- * same triage payload each row's own detail screen will reuse. Shares the
- * exact query key `useEnquiryTriage` uses, so opening a row afterwards is an
- * instant cache hit, not a second fetch.
+ * Inbox list-row summaries for every enquiry in view -- ONE request for the whole list (the
+ * list only needs estimate number, total, item count, first item and the stock-gap flag), instead
+ * of the full triage payload per row. Opening a row loads its own lean detail separately.
  */
-export function useEnquiryTriageByIds(entryIds: string[]) {
-  const results = useQueries({
-    queries: entryIds.map((entryId) => ({
-      queryKey: ['inbox-entry-enquiry', entryId],
-      queryFn: async () => {
-        const res = await apiFetch(`/api/tenant/entries/${entryId}/enquiry`, { fresh: true });
-        if (!res.ok) throw new Error('Failed to load enquiry');
-        return (await res.json()) as EnquiryTriagePayload;
-      },
-      staleTime: NAVIGATION_QUERY_STALE_TIME,
-      gcTime: NAVIGATION_QUERY_GC_TIME,
-    })),
-  });
+const ENQUIRY_SUMMARY_MAX_IDS = 50; // mirrors enquiry-summary route cap
 
-  const byEntryId = new Map<string, EnquiryTriagePayload>();
-  entryIds.forEach((entryId, index) => {
-    const data = results[index]?.data;
-    if (data) byEntryId.set(entryId, data);
+export function useEnquirySummaries(entryIds: string[]) {
+  const ids = [...entryIds].sort().slice(0, ENQUIRY_SUMMARY_MAX_IDS);
+  const { data } = useQuery({
+    queryKey: ['inbox-entry-enquiry', 'summary', ids],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/tenant/entries/enquiry-summary?ids=${ids.join(',')}`, { fresh: true });
+      if (!res.ok) throw new Error('Failed to load enquiry summaries');
+      return ((await res.json()) as { summaries: EnquirySummary[] }).summaries;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: NAVIGATION_QUERY_STALE_TIME,
+    gcTime: NAVIGATION_QUERY_GC_TIME,
   });
+  const byEntryId = new Map<string, EnquirySummary>();
+  for (const summary of data ?? []) byEntryId.set(summary.entryId, summary);
   return byEntryId;
+}
+
+/** Alternates for one short line; only fetched once the seller opens that line (`enabled`). */
+export function useEnquiryLineAlternates(entryId: string, lineId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['inbox-entry-enquiry', entryId, 'alternates', lineId],
+    enabled,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/tenant/entries/${entryId}/enquiry/alternates?lineId=${lineId}`, { fresh: true });
+      if (!res.ok) throw new Error('Failed to load alternatives');
+      return (await res.json()) as EnquiryLineAlternatesPayload;
+    },
+    staleTime: NAVIGATION_QUERY_STALE_TIME,
+    gcTime: NAVIGATION_QUERY_GC_TIME,
+  });
 }
 
 export function useSubstituteEnquiryLine(entryId: string) {
@@ -470,6 +481,7 @@ export function useSubstituteEnquiryLine(entryId: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inbox-entry-enquiry', entryId] });
+      queryClient.invalidateQueries({ queryKey: ['inbox-entry-enquiry', 'summary'] });
     },
   });
 }

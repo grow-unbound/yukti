@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 let gstInclusiveMock = false;
+let triageHidden = false;
 const saveMutateAsync = vi.fn().mockResolvedValue({ data: {} });
 const sendMutateAsync = vi.fn().mockResolvedValue({});
 
@@ -36,11 +37,14 @@ vi.mock('@/hooks/useEstimates', () => ({
 
 vi.mock('@/hooks/useInboxEntries', () => ({
   useBuyerOutstandingInvoices: () => ({ data: undefined, isLoading: false, isError: false }),
+  useEnquiryLineAlternates: () => ({ data: { lineId: 'l1', alternates: [] }, isLoading: false }),
   useEnquiryTriage: () => ({
     data: {
+      hiddenPricing: triageHidden,
+      collectTargetUnitPriceRange: triageHidden,
       lines: [
-        { id: 'l1', resolvedPrice: 1750, velocity: { unitsPerWeek: 0, daysCover: null, lastInvoiceAt: null }, alternates: [] },
-        { id: 'l2', resolvedPrice: 45, velocity: { unitsPerWeek: 3, daysCover: 10, lastInvoiceAt: null }, alternates: [] },
+        { id: 'l1', resolvedPrice: triageHidden ? 1750 : null, baseRate: 1700 },
+        { id: 'l2', resolvedPrice: triageHidden ? 45 : null, baseRate: 40 },
       ],
     },
     isLoading: false,
@@ -77,15 +81,25 @@ function renderSheet() {
 describe('InboxReplyQuoteSheet / InboxReplyQuoteView', () => {
   beforeEach(() => {
     gstInclusiveMock = false;
+    triageHidden = false;
   });
 
-  it('shows every line regardless of price state, with target, resolved price, stock, and recent sales', () => {
+  it('shows every line regardless of price state, with target, resolved price and stock (target-price tenant)', () => {
+    triageHidden = true;
     renderSheet();
     expect(screen.getByText('Gate Valve 150mm')).toBeInTheDocument();
     expect(screen.getByText('Wing Nut 15mm')).toBeInTheDocument();
     expect(screen.getByText('₹1,800 – ₹2,000')).toBeInTheDocument();
     expect(screen.getByText('₹1,750')).toBeInTheDocument();
-    expect(screen.getByText('~3/wk')).toBeInTheDocument();
+    expect(screen.queryByText('Recent sales')).not.toBeInTheDocument();
+  });
+
+  it('shows the tenant base rate instead of target and resolved price when targets are not collected', () => {
+    renderSheet();
+    expect(screen.queryByText('Buyer target')).not.toBeInTheDocument();
+    expect(screen.queryByText('Resolved price')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Base rate').length).toBeGreaterThan(0);
+    expect(screen.getByText('₹1,700')).toBeInTheDocument();
   });
 
   it('keeps a removed line visible, struck-through, and excludes it from the saved payload', async () => {

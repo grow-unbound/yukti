@@ -5,6 +5,16 @@ import type { EnquiryTriagePayload } from '@/lib/inbox/enquiry-triage';
 
 let gstInclusiveMock = false;
 const substituteMutateAsync = vi.fn().mockResolvedValue({});
+const alternatesPayload = {
+  lineId: 'l1',
+  alternates: [
+    {
+      tenantProductId: 'alt-1', name: 'CAT6 Cable (Brand B)', sku: 'SKU-2', brandName: 'Brand B',
+      available: 40, velocity: { unitsPerWeek: 5, daysCover: 8, lastInvoiceAt: null },
+      sameBrand: false, sameCategory: true, buyerPrice: 480,
+    },
+  ],
+};
 let triagePayload: EnquiryTriagePayload = {
   estimateId: 'est-1',
   estimateNumber: 'EST-016127',
@@ -20,16 +30,8 @@ let triagePayload: EnquiryTriagePayload = {
   lines: [
     {
       id: 'l1', tenantProductId: 'p1', name: 'CAT6 Cable', sku: 'SKU-1', brandName: 'Brand A',
-      qty: 10, unitPrice: 500, discPct: 0, imageUrl: null, resolvedPrice: 500, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
+      qty: 10, unitPrice: 500, discPct: 0, imageUrl: null, resolvedPrice: 500, baseRate: 450, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
       onHand: 2, stock: { tone: 'danger', label: 'Out of stock', shortBy: 10 }, priceState: 'priced_oos',
-      velocity: { unitsPerWeek: 3, daysCover: 12, lastInvoiceAt: null },
-      alternates: [
-        {
-          tenantProductId: 'alt-1', name: 'CAT6 Cable (Brand B)', sku: 'SKU-2', brandName: 'Brand B',
-          available: 40, velocity: { unitsPerWeek: 5, daysCover: 8, lastInvoiceAt: null },
-          sameBrand: false, sameCategory: true, buyerPrice: 480,
-        },
-      ],
     },
   ],
 };
@@ -41,6 +43,7 @@ vi.mock('@/hooks/useInboxEntries', () => ({
     isLoading: false,
     isError: false,
   }),
+  useEnquiryLineAlternates: () => ({ data: alternatesPayload, isLoading: false, isError: false }),
   useSubstituteEnquiryLine: () => ({ mutateAsync: substituteMutateAsync, isPending: false }),
 }));
 
@@ -85,16 +88,8 @@ describe('InboxEnquiryPanel', () => {
       lines: [
         {
           id: 'l1', tenantProductId: 'p1', name: 'CAT6 Cable', sku: 'SKU-1', brandName: 'Brand A',
-          qty: 10, unitPrice: 500, discPct: 0, imageUrl: null, resolvedPrice: 500, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
+          qty: 10, unitPrice: 500, discPct: 0, imageUrl: null, resolvedPrice: 500, baseRate: 450, targetMin: null, targetMax: null, buyerNote: 'urgent for install',
           onHand: 2, stock: { tone: 'danger', label: 'Out of stock', shortBy: 10 }, priceState: 'priced_oos',
-          velocity: { unitsPerWeek: 3, daysCover: 12, lastInvoiceAt: null },
-          alternates: [
-            {
-              tenantProductId: 'alt-1', name: 'CAT6 Cable (Brand B)', sku: 'SKU-2', brandName: 'Brand B',
-              available: 40, velocity: { unitsPerWeek: 5, daysCover: 8, lastInvoiceAt: null },
-              sameBrand: false, sameCategory: true, buyerPrice: 480,
-            },
-          ],
         },
       ],
     };
@@ -145,6 +140,16 @@ describe('InboxEnquiryPanel', () => {
     renderPanel();
     expect(screen.getAllByText('₹480').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Base Price ₹480/).length).toBeGreaterThan(0);
+  });
+
+  it('falls back to the tenant base rate when the line has no stored or resolved price', () => {
+    const line = (triagePayload as { lines: Array<Record<string, unknown>> }).lines[0];
+    line.unitPrice = null;
+    line.resolvedPrice = null;
+    line.baseRate = 450;
+    renderPanel();
+    expect(screen.getAllByText('₹450').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Base Price ₹450/).length).toBeGreaterThan(0);
   });
 
   it('renders totals, note and line image from the enquiry payload without fetching the estimate detail', () => {
@@ -208,14 +213,12 @@ describe('InboxEnquiryPanel', () => {
         resolvedPrice: 500,
         stock: { tone: 'ok', label: 'In stock', shortBy: 0 },
         onHand: 25,
-        velocity: { unitsPerWeek: 0, daysCover: null, lastInvoiceAt: null },
-        alternates: [],
       }],
     };
     renderPanel();
     expect(screen.getByText('Expected')).toBeInTheDocument();
     expect(screen.getByText('₹450 – ₹475')).toBeInTheDocument();
-    expect(screen.getAllByText(/Base Price ₹500/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Base Price ₹500/).length).toBeGreaterThan(0); // buyer-resolved price wins over base rate
     expect(screen.queryByText('Your quote')).not.toBeInTheDocument();
   });
 
@@ -232,8 +235,6 @@ describe('InboxEnquiryPanel', () => {
         resolvedPrice: 500,
         stock: { tone: 'ok', label: 'In stock', shortBy: 0 },
         onHand: 25,
-        velocity: { unitsPerWeek: 0, daysCover: null, lastInvoiceAt: null },
-        alternates: [],
       }],
     };
     renderPanel();

@@ -65,11 +65,30 @@ export interface EnquiryTriageLine {
    * (app.resolve_price precedence) -- a reference for the seller to quote
    * against, distinct from `unitPrice` (whatever price the seller has or
    * hasn't already set on this enquiry line). Null when there's no buyer to
-   * resolve a price for (e.g. a guest-originated enquiry). */
+   * resolve a price for (e.g. a guest-originated enquiry). Only resolved server-side when the
+   * tenant hides prices AND collects buyer target prices; null otherwise (use `baseRate`). */
   resolvedPrice: number | null;
-  velocity: EnquiryVelocity;
-  alternates: EnquiryAlternate[];
+  /** Tenant base selling price (app.tenant_products.base_selling_price) -- the default reference
+   * when the tenant does not collect buyer target prices; no price resolution involved. */
+  baseRate: number | null;
   priceState: EnquiryLinePriceState;
+}
+
+/** Alternates (+ pool velocity and buyer prices) for ONE short line, loaded on demand. */
+export interface EnquiryLineAlternatesPayload {
+  lineId: string;
+  alternates: EnquiryAlternate[];
+}
+
+/** Everything the Inbox list row needs from an enquiry; no per-line detail. */
+export interface EnquirySummary {
+  entryId: string;
+  estimateId: string;
+  estimateNumber: string;
+  totalAmount: number | null;
+  lineCount: number;
+  firstLineName: string | null;
+  atRisk: boolean;
 }
 
 export interface EnquiryTriagePayload {

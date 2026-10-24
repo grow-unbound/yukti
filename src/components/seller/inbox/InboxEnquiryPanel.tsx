@@ -4,10 +4,10 @@ import Image from 'next/image';
 import { Fragment, useState } from 'react';
 import { ChevronDown, Package } from 'lucide-react';
 import { toast } from 'sonner';
-import { useEnquiryTriage, useSubstituteEnquiryLine } from '@/hooks/useInboxEntries';
+import { useEnquiryLineAlternates, useEnquiryTriage, useSubstituteEnquiryLine } from '@/hooks/useInboxEntries';
 import { useBusinessPolicy } from '@/hooks/useBusinessPolicy';
 import { computeDisplayDocumentTotals } from '@/lib/gst';
-import type { EnquiryTriageLine } from '@/lib/inbox/enquiry-triage';
+import type { EnquiryAlternate, EnquiryTriageLine } from '@/lib/inbox/enquiry-triage';
 import { buildTargetRangeLabel } from '@/lib/inbox/inbox-entry-copy';
 import { cn, formatNumberValue } from '@/lib/utils';
 import { velocityLabel } from './EnquiryLineDisplay';
@@ -18,7 +18,7 @@ function money(value: number) {
   return formatNumberValue(value, 'CURRENCY_EXACT');
 }
 
-function hasVelocitySignal(velocity: EnquiryTriageLine['velocity']): boolean {
+function hasVelocitySignal(velocity: EnquiryAlternate['velocity']): boolean {
   return velocity.unitsPerWeek > 0 || velocity.daysCover != null || velocity.lastInvoiceAt != null;
 }
 
@@ -26,11 +26,12 @@ function quotedPriceLabel(line: EnquiryTriageLine) {
   return line.unitPrice != null && line.unitPrice > 0 ? money(line.unitPrice) : '-';
 }
 
-// Price captured on the estimate line at submission; the current resolved price is only a fallback
-// for lines that carry none (hidden-price enquiries).
+// Price captured on the estimate line at submission; the buyer's resolved price (target-price tenants
+// only) and then the tenant base rate are fallbacks for lines that carry none (hidden-price enquiries).
 function documentUnitPrice(line: EnquiryTriageLine): number | null {
   if (line.unitPrice != null && line.unitPrice > 0) return line.unitPrice;
-  return line.resolvedPrice != null && line.resolvedPrice > 0 ? line.resolvedPrice : null;
+  if (line.resolvedPrice != null && line.resolvedPrice > 0) return line.resolvedPrice;
+  return line.baseRate != null && line.baseRate > 0 ? line.baseRate : null;
 }
 
 function resolvedPriceLabel(line: EnquiryTriageLine) {
@@ -53,9 +54,10 @@ function lineAmountLabel(line: EnquiryTriageLine, showTargetPricing: boolean) {
 // Caption for the current catalog price. "Base Price" when the line carries no stored price (it is the
 // price shown); "Current price" when it differs from the price stored on the estimate.
 function currentPriceCaption(line: EnquiryTriageLine): string | null {
-  if (line.resolvedPrice == null) return null;
-  if (line.unitPrice == null || line.unitPrice <= 0) return `Base Price ${money(line.resolvedPrice)}`;
-  return line.resolvedPrice !== line.unitPrice ? `Current price ${money(line.resolvedPrice)}` : null;
+  const reference = line.resolvedPrice ?? line.baseRate;
+  if (reference == null) return null;
+  if (line.unitPrice == null || line.unitPrice <= 0) return `Base Price ${money(reference)}`;
+  return reference !== line.unitPrice ? `Current price ${money(reference)}` : null;
 }
 
 function desktopLineSubtext(line: EnquiryTriageLine) {
@@ -63,7 +65,6 @@ function desktopLineSubtext(line: EnquiryTriageLine) {
     line.sku,
     currentPriceCaption(line),
     `Stock ${line.onHand}`,
-    hasVelocitySignal(line.velocity) ? velocityLabel(line.velocity) : null,
   ].filter(Boolean);
   return parts.join(' · ');
 }
@@ -88,9 +89,12 @@ function ProductThumb({ src, name }: { src: string | null; name: string }) {
 
 function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine; estimateId: string; entryId: string }) {
   const substitute = useSubstituteEnquiryLine(entryId);
+  // Mounted only when the seller opens this line, so alternates load on demand.
+  const alternatesQuery = useEnquiryLineAlternates(entryId, line.id, true);
+  const alternates = alternatesQuery.data?.alternates ?? [];
   const [substitutingId, setSubstitutingId] = useState<string | null>(null);
 
-  async function handleSubstitute(alt: EnquiryTriageLine['alternates'][number]) {
+  async function handleSubstitute(alt: EnquiryAlternate) {
     setSubstitutingId(alt.tenantProductId);
     try {
       await substitute.mutateAsync({ estimateId, lineId: line.id, tenantProductId: alt.tenantProductId });
@@ -106,13 +110,17 @@ function AlternatesList({ line, estimateId, entryId }: { line: EnquiryTriageLine
     <div className="border-t border-cream-200 bg-cream-50 px-4 py-4">
       <p className="text-base text-cream-700">
         Buyer asked for {line.qty}; {line.stock.label.toLowerCase()}.
-        {line.alternates.length > 0
-          ? ' In-stock alternatives, same category first — substituting updates this line in place:'
-          : ' No in-stock alternatives found in this category or brand.'}
+        {alternatesQuery.isLoading
+          ? ' Finding in-stock alternatives…'
+          : alternatesQuery.isError
+            ? ' Couldn\u2019t load alternatives.'
+            : alternates.length > 0
+              ? ' In-stock alternatives, same category first — substituting updates this line in place:'
+              : ' No in-stock alternatives found in this category or brand.'}
       </p>
-      {line.alternates.length > 0 ? (
+      {alternates.length > 0 ? (
         <ul className="mt-3 space-y-2">
-          {line.alternates.map((alt) => {
+          {alternates.map((alt) => {
             const isPending = substitute.isPending && substitutingId === alt.tenantProductId;
             return (
               <li
