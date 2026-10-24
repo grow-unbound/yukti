@@ -233,6 +233,11 @@ Item format:
 - why: `supabase/functions/whatsapp-inbound-webhook/index.ts` passed only `distinct_id`, causing valid MobileHub inbound messages to be skipped as `feature_disabled`; the same live evaluation changed from `no_group_type`/false to `condition_match`/true when the tenant group was supplied.
 - cost: 1-2 lines, on-demand architecture.md
 
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — Embedded Signup cannot depend on browser asset IDs
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta retired WhatsApp Embedded Signup v2/v3 on 2026-10-15. Yukti launches the Facebook Login for Business configuration without sessionInfoVersion and treats browser waba_id/phone_number_id as optional hints: after exchanging the OAuth code, the server resolves granted WABAs from debug_token granular scopes and phone numbers from /{waba_id}/phone_numbers. Never silently choose when multiple phones are available.`
+- why: the live app returned a valid OAuth code after Meta confirmation but no usable WA_EMBEDDED_SIGNUP asset event, reproducing “WhatsApp did not return a business account or phone number”; requiring both IDs client-side blocked onboarding even though Graph authorization succeeded.
+- cost: 2-3 lines, on-demand MEMORY.md
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
