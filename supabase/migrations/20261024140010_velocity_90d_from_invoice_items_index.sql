@@ -5,7 +5,7 @@
 --
 -- Behaviour changes vs 20261015040205: invoice_units_90d is the exact trailing-90-day sum of
 -- invoice_items.qty on in-flow invoices (app.invoice_status_in_flow), not a month-bucket estimate scaled
--- to 90 days; last_invoice_at stays MAX(invoice_items.created_at). Signature, volatility, search_path,
+-- to 90 days; last_invoice_at is the newest invoice_items.created_at on an in-flow invoice (cancelled/draft no longer count). Signature, volatility, search_path,
 -- tenant ownership filter and the 1000-id cap are unchanged. Apply only after the index exists.
 CREATE OR REPLACE FUNCTION app.get_product_velocity_90d(p_tenant_id uuid, p_product_ids uuid[])
 RETURNS TABLE(tenant_product_id uuid, invoice_units_90d numeric, last_invoice_at timestamp with time zone)
@@ -53,8 +53,11 @@ BEGIN
   LEFT JOIN LATERAL (
     SELECT ii.created_at AS last_invoice_at
     FROM app.invoice_items ii
+    JOIN app.invoices i ON i.id = ii.invoice_id
     WHERE ii.tenant_product_id = w.id
       AND ii.deleted_at IS NULL
+      AND i.deleted_at IS NULL
+      AND app.invoice_status_in_flow(i.status)
     ORDER BY ii.created_at DESC
     LIMIT 1
   ) l ON true;

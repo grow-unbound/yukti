@@ -16,6 +16,7 @@ import {
 type DbClient = any;
 
 const ALTERNATE_POOL_LIMIT = 40;
+const ENQUIRY_ITEM_LIMIT = 500; // per estimate, detail and summary alike
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null;
@@ -205,7 +206,7 @@ export async function loadEnquiryTriage(
       .eq('id', estimateId).eq('tenant_id', tenantId).is('deleted_at', null).maybeSingle(),
     d.schema('app').from('estimate_items')
       .select('id, tenant_product_id, qty, unit_price, disc_pct, item_order, buyer_target_unit_price_min, buyer_target_unit_price_max, buyer_note')
-      .eq('estimate_id', estimateId).is('deleted_at', null).order('item_order', { ascending: true }).limit(500),
+      .eq('estimate_id', estimateId).is('deleted_at', null).order('item_order', { ascending: true }).limit(ENQUIRY_ITEM_LIMIT),
     d.schema('app').from('catalogs')
       .select('pricing_mode, collect_target_unit_price_range')
       .eq('tenant_id', tenantId)
@@ -414,7 +415,7 @@ export async function loadEnquirySummaries(
       .in('id', estimateIds).eq('tenant_id', tenantId).is('deleted_at', null).limit(estimateIds.length),
     d.schema('app').from('estimate_items')
       .select('estimate_id, tenant_product_id, qty, item_order')
-      .in('estimate_id', estimateIds).is('deleted_at', null).order('item_order', { ascending: true }).limit(5000),
+      .in('estimate_id', estimateIds).is('deleted_at', null).order('item_order', { ascending: true }).limit(estimateIds.length * ENQUIRY_ITEM_LIMIT),
   ]);
   if (estimatesRes.error) throw estimatesRes.error;
   if (itemsRes.error) throw itemsRes.error;

@@ -433,7 +433,8 @@ export function useEnquiryTriage(entryId: string, enabled = true) {
 const ENQUIRY_SUMMARY_MAX_IDS = 50; // mirrors enquiry-summary route cap
 
 export function useEnquirySummaries(entryIds: string[]) {
-  const ids = [...entryIds].sort().slice(0, ENQUIRY_SUMMARY_MAX_IDS);
+  // Keep list order when truncating (first rows are the visible ones); sort only for a stable key.
+  const ids = entryIds.slice(0, ENQUIRY_SUMMARY_MAX_IDS).sort();
   const { data } = useQuery({
     queryKey: ['inbox-entry-enquiry', 'summary', ids],
     enabled: ids.length > 0,
