@@ -250,6 +250,18 @@ Item format:
 - text: `Meta retired WhatsApp Embedded Signup v2/v3 on 2026-10-15. Yukti launches the Facebook Login for Business configuration without sessionInfoVersion and treats browser waba_id/phone_number_id as optional hints: after exchanging the OAuth code, the server resolves granted WABAs from debug_token granular scopes and phone numbers from /{waba_id}/phone_numbers. Never silently choose when multiple phones are available.`
 - why: the live app returned a valid OAuth code after Meta confirmation but no usable WA_EMBEDDED_SIGNUP asset event, reproducing “WhatsApp did not return a business account or phone number”; requiring both IDs client-side blocked onboarding even though Graph authorization succeeded.
 - cost: 2-3 lines, on-demand MEMORY.md
+### 2026-10-24 fix/whatsapp-provider-message-id-index — Oct 24 "DB choking" outage was the Free-plan egress cap, not the DB
+- [ ] target: MEMORY.md (prod incident note) + .claude/skills/prod-db-health   change: add
+- text: `2026-10-24 ~07:35 UTC prod API returned 504/522 on /rest/v1 and /auth/v1 while Database stayed Healthy, CPU/IOPS/connections flat. Cause: Free-plan egress quota 5.001/5 GB (log query 413%). Fixed by upgrading yukti org to Pro (250 GB egress); recovered ~09:00 UTC without a restart. In prod-db-health add step 0: check Usage page (egress/log quotas) and Project Overview per-service health (PostgREST/Auth Unhealthy + DB Healthy = not a DB stall) before recommending a restart.`
+- why: triage first read it as the Oct 7 memory stall pattern; dashboard Usage banner + flat resource charts at onset disproved it. A restart would have cost downtime and fixed nothing.
+- cost: 3 lines MEMORY.md (on-demand) + 1 skill line
+
+### 2026-10-24 fix/whatsapp-provider-message-id-index — pg_stat_statements survives restarts; totals are cumulative
+- [ ] target: .claude/skills/prod-db-health (step 4)   change: add
+- text: `pg_stat_statements persists across restarts and compute upgrades. Check select stats_reset from pg_stat_statements_info before trusting means/max: the 2026-10-07 baseline mixed pre-fix queries and stall periods (velocity RPC showed 2.5 s mean; live EXPLAIN ANALYZE after the Oct 15 fix was ~50 ms). Judge per-call cost with EXPLAIN (ANALYZE, BUFFERS) of the RPC on the live tenant; resetting stats is a prod write.`
+- why: user believed stats had been reset by the restart; they had not (stats_reset 2026-10-07), nearly sending optimization effort at already-fixed queries.
+- cost: 1-2 lines, on-demand skill
+
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)
