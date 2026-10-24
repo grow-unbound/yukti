@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { unstable_cache } from 'next/cache';
 import { supabaseAdmin, supabase } from '@/lib/supabase';
 import { haversineKm } from '@/lib/haversine';
 import { deriveBuyerPlaceOfSupply, hasBuyerDeliveryCoordinates, type BuyerDeliveryAddress } from '@/lib/buyer-routing';
@@ -13,21 +14,43 @@ export interface BuyerResolvedRouting {
   placeOfSupply: string;
 }
 
-async function loadTenantRoutingThreshold(db: SupabaseClient, tenantId: string): Promise<number> {
-  const { data: settingsRow } = await (db as any)
+// Routing inputs are tenant-wide and change rarely (a seller edits a warehouse or the threshold),
+// but every buyer catalog/search/PDP request with delivery coordinates used to re-read all of them.
+// Cached per tenant; only the nearest-warehouse maths stays per request. Settings edits drop the
+// `tenant-settings:<tenant>` tag; warehouse edits wait out the TTL. `db` must be the service-role client.
+const ROUTING_INPUTS_REVALIDATE_SECONDS = 60;
+
+// A failed read throws inside the cached loader (unstable_cache never stores a throw), and the caller
+// falls back to the same default the code always used - a transient DB error is never cached for the TTL.
+async function cachedPerTenant<T>(name: string, tenantId: string, load: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await unstable_cache(load, ['buyer-routing', name, tenantId], {
+      revalidate: ROUTING_INPUTS_REVALIDATE_SECONDS,
+      tags: [`tenant-settings:${tenantId}`],
+    })();
+  } catch (error) {
+    console.error(`[buyer-routing] ${name} read failed`, error);
+    return fallback;
+  }
+}
+
+async function fetchTenantRoutingThreshold(db: SupabaseClient, tenantId: string): Promise<number> {
+  const { data: settingsRow, error } = await (db as any)
     .schema('app')
     .from('tenant_settings')
     .select('settings')
     .eq('tenant_id', tenantId)
     .single();
+  // PGRST116 = no settings row yet: not an error, the default threshold applies.
+  if (error && error.code !== 'PGRST116') throw new Error(error.message);
 
   return typeof settingsRow?.settings?.delivery_routing_threshold_km === 'number'
     ? settingsRow.settings.delivery_routing_threshold_km
     : 50;
 }
 
-async function loadWarehouseLocations(db: SupabaseClient, tenantId: string) {
-  const { data: warehouses } = await (db as any)
+async function fetchWarehouseLocations(db: SupabaseClient, tenantId: string) {
+  const { data: warehouses, error } = await (db as any)
     .schema('app')
     .from('warehouses')
     .select('id, name, lat, lng, is_default, location_id, locations(id, name)')
@@ -35,6 +58,7 @@ async function loadWarehouseLocations(db: SupabaseClient, tenantId: string) {
     .is('deleted_at', null)
     .not('lat', 'is', null)
     .not('lng', 'is', null);
+  if (error) throw new Error(error.message);
 
   return (warehouses ?? []) as Array<{
     id: string;
@@ -47,8 +71,8 @@ async function loadWarehouseLocations(db: SupabaseClient, tenantId: string) {
   }>;
 }
 
-async function loadDefaultLocation(db: SupabaseClient, tenantId: string) {
-  const { data: defaultLocs } = await (db as any)
+async function fetchDefaultLocation(db: SupabaseClient, tenantId: string) {
+  const { data: defaultLocs, error } = await (db as any)
     .schema('app')
     .from('locations')
     .select('id, name')
@@ -56,12 +80,13 @@ async function loadDefaultLocation(db: SupabaseClient, tenantId: string) {
     .eq('is_default', true)
     .is('deleted_at', null)
     .limit(1);
+  if (error) throw new Error(error.message);
 
   return (defaultLocs as Array<{ id: string; name: string }> | null)?.[0] ?? null;
 }
 
-async function loadDefaultWarehouse(db: SupabaseClient, tenantId: string) {
-  const { data: defaultWarehouses } = await (db as any)
+async function fetchDefaultWarehouse(db: SupabaseClient, tenantId: string) {
+  const { data: defaultWarehouses, error } = await (db as any)
     .schema('app')
     .from('warehouses')
     .select('id, name, location_id, locations(id, name)')
@@ -69,6 +94,7 @@ async function loadDefaultWarehouse(db: SupabaseClient, tenantId: string) {
     .eq('is_default', true)
     .is('deleted_at', null)
     .limit(1);
+  if (error) throw new Error(error.message);
 
   return (defaultWarehouses as Array<{
     id: string;
@@ -77,6 +103,15 @@ async function loadDefaultWarehouse(db: SupabaseClient, tenantId: string) {
     locations?: { id: string; name: string | null } | { id: string; name: string | null }[] | null;
   }> | null)?.[0] ?? null;
 }
+
+const loadTenantRoutingThreshold = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('threshold', tenantId, () => fetchTenantRoutingThreshold(db, tenantId), 50);
+const loadWarehouseLocations = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('warehouses', tenantId, () => fetchWarehouseLocations(db, tenantId), []);
+const loadDefaultLocation = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('default-location', tenantId, () => fetchDefaultLocation(db, tenantId), null);
+const loadDefaultWarehouse = (db: SupabaseClient, tenantId: string) =>
+  cachedPerTenant('default-warehouse', tenantId, () => fetchDefaultWarehouse(db, tenantId), null);
 
 export async function resolveNearestBuyerLocation(
   db: SupabaseClient,

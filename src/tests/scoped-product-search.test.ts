@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { searchScopedProducts } from '@/lib/server/scoped-product-search';
+import { BUYER_SCOPED_PRODUCT_COLUMNS, searchScopedProducts } from '@/lib/server/scoped-product-search';
 
 describe('searchScopedProducts', () => {
   it('treats an explicitly empty allowed-brand scope as deny-all', async () => {
@@ -45,6 +45,7 @@ describe('searchScopedProducts', () => {
       db: { schema: () => ({ rpc }) } as any,
       tenantId: 'tenant-a',
       categoryScopeId: 'master-category-a',
+      query: 'cable',
       limit: 20,
     });
 
@@ -63,6 +64,7 @@ describe('searchScopedProducts', () => {
     const result = await searchScopedProducts({
       db: { schema: () => ({ rpc }) } as any,
       tenantId: 'tenant-a',
+      query: 'cable',
       limit: 20,
       offset: 80,
     });
@@ -72,5 +74,34 @@ describe('searchScopedProducts', () => {
       p_limit: 1,
       p_offset: 0,
     }));
+  });
+});
+
+describe('searchScopedProducts column filter', () => {
+  it('asks PostgREST for only the given columns, and everything when none are given', async () => {
+    const select = vi.fn().mockResolvedValue({ data: [], error: null });
+    const rpc = vi.fn(() => Object.assign(Promise.resolve({ data: [], error: null }), { select }));
+    const db = { schema: () => ({ rpc }) } as any;
+
+    await searchScopedProducts({ db, tenantId: 'tenant-a', limit: 20, columns: BUYER_SCOPED_PRODUCT_COLUMNS });
+    expect(select).toHaveBeenCalledWith(BUYER_SCOPED_PRODUCT_COLUMNS.join(','));
+
+    select.mockClear();
+    await searchScopedProducts({ db, tenantId: 'tenant-a', limit: 20 });
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('buyer column list never ships seller-only columns and keeps everything the buyer mapping reads', () => {
+    const cols: readonly string[] = BUYER_SCOPED_PRODUCT_COLUMNS;
+    expect(cols).not.toContain('cost_price');
+    for (const needed of [
+      'tenant_product_id', 'product_name', 'sku', 'brand_id', 'brand_name', 'category_id', 'category_name',
+      'tax_pct', 'on_hand', 'unit_price', 'mrp', 'base_selling_price', 'default_uom', 'pack_size', 'total_count',
+      'image_urls', 'r2_small_key', 'r2_medium_key', 'r2_large_key', 'brand_logo_url',
+      'category_image_thumb_key', 'category_image_medium_key',
+      'family_image_urls', 'family_r2_small_key', 'family_r2_medium_key', 'family_r2_large_key',
+    ]) {
+      expect(cols).toContain(needed);
+    }
   });
 });

@@ -49,7 +49,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const profile = await requireBuyerAccessProfile(request);
+    const profile = await requireBuyerAccessProfile(request, { slim: true });
     if (!profile?.context.tenant_id || !profile.buyer?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

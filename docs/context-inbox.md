@@ -15,6 +15,18 @@ Item format:
 
 ## Pending
 
+### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — Supabase "Cached Egress" is 0 by design; egress = PostgREST payload bytes
+- [ ] target: MEMORY.md   change: add
+- text: Free-plan egress alarms: Cached Egress stays 0 because every PostgREST/RPC reply is `cf_cache_status: DYNAMIC` (service-role POSTs from Vercel; only Storage CDN is cacheable, images are on R2). The lever is bytes per call: one `load_products_scoped(limit 40)` page is ~56-60 KB (~1.5 KB/row, mostly JSON keys + r2 key columns); `.rpc().select(cols)` trims only ~7%. Bigger wins need per-row dedupe (brand/category/family fields) or fewer/smaller pages.
+- why: Oct 23 review (4.67/5 GB; edge logs have no response size, measured with `to_jsonb(row)` byte SELECT on prod).
+- cost: 1 line, always-loaded
+
+### 2026-10-23 claude/yukti-prod-io-egress-review-814b17 — buyer-path RPC/table reads: cache whole small sets, not per-page filters
+- [ ] target: .claude/rules/data-fetching.md   change: add
+- text: under "Caching": "Per-page `WHERE id IN (page ids)` reads of small tenant-wide sets (campaign_items: 12 campaigns, ~940 rows) become one query shape per page. Cache the whole set per (tenant, parent id) with `unstable_cache` + the buyer-context tag and filter in memory (`src/lib/server/campaign-items-cache.ts`)."
+- why: Oct 23 edge-log shape query: campaign_items ~380 calls / 30 min in 4 shapes, all page-id filters.
+- cost: 1 line, path-scoped
+
 ### 2026-10-17 perf/buyer-profile-slim — specs/ and docs/incidents/ are gitignored; say so
 - [ ] target: CLAUDE.md ("Where to look" table)   change: edit
 - text: append to the `specs/INDEX.md` row: "(`specs/` and `docs/incidents/` are gitignored in this public repo: new specs/logs stay local, don't `git add` them)"
@@ -179,6 +191,53 @@ Item format:
 - why: PRs #220/#223/#224/#225 fixed this surface by surface after a release showed ex-GST lines (invoice WYT/26-27/46568) and an inbox table (current price 3,150) disagreeing with its totals (stored 2,700); each surface had its own math.
 - cost: 1 bullet, path-scoped
 
+### 2026-10-23 claude/yukti-email-inbox-spec-a7931d — test an unapplied migration on dev without a push
+- [ ] target: .claude/rules/supabase-sql.md (Working against the hosted dev project)   change: add
+- text: `To test a migration before it is applied, concatenate BEGIN; + the migration file + a behavior-test file (DO blocks that RAISE EXCEPTION on failure, synthetic fixtures via pg_temp helpers) + ROLLBACK; and run it with supabase db query --linked --file. Nothing persists, the migration itself is exercised. See scripts/sql/run-email-inbox-p1-tests.sh.`
+- why: caught three SQL/fixture bugs on dev before any `db push` (this session: 17 scenarios, no persistent writes); the existing bullet only says to wrap "mutation-shaped validation".
+- cost: 1 bullet, path-scoped
+
+### 2026-10-23 claude/yukti-email-inbox-spec-a7931d — per-tenant PostHog flag targeting
+- [ ] target: docs/architecture.md (feature flags)   change: add
+- text: `Flags are evaluated per tenant id as the PostHog distinct_id (resolveTenantFlags -> evaluateFlags(tenantId); edge functions POST /decide with distinct_id=tenantId), no groups. To enable one tenant, add a person-property condition {key: distinct_id, type: person, operator: exact, value: [tenant_id]} (verified via /decide). New df_ flags default off: add them to DEFAULT_OFF_FLAGS in src/lib/server/tenant-flags-resolve.ts. The PostHog project is shared by dev and prod; never create a flag at 100%.`
+- why: creating df_email_inbox required finding this by experiment; existing df_whatsapp_inbox is a group flag (aggregation_group_type_index 0) that this evaluation path does not pass groups to, so copying its shape would silently evaluate false.
+- cost: 1 bullet, on-demand
+
+### 2026-10-23 claude/yukti-email-inbox-spec-a7931d — do not run pnpm in a worktree with a symlinked node_modules
+- [ ] target: CLAUDE.md (Workflow)   change: add (fold into the verify line, 0 net lines if shortened)
+- text: `Secondary git worktrees (baseline comparisons): run ./node_modules/.bin/vitest, never pnpm exec; pnpm's deps check tries to re-install and aborts with ERR_PNPM_UNSAFE_MODULES_DIR when node_modules is a symlink.`
+- why: `pnpm exec vitest` in a baseline worktree attempted `pnpm install` against the symlinked modules dir; refused only by pnpm's safety check (2 wasted turns).
+- cost: 1 line, always-loaded (reject if CLAUDE.md budget is tight)
+
+### 2026-10-23 codex/fix-whatsapp-embedded-signup — branch sweeps must use the fetched remote base
+- [ ] target: CLAUDE.md (Workflow)   change: add
+- text: `For an unmerged-branch sweep, fetch/prune first and compare every local/remote topic branch against the fetched PR base (for example origin/develop), never a possibly stale local develop. Use patch-equivalence (--cherry-pick / range-diff), not ancestry alone, because squash/rebase and stacked branches otherwise look missing; reconcile obsolete branch history only after verifying the current tree contains or supersedes its behavior.`
+- why: local `develop` was 117 commits behind `origin/develop`, initially making already-merged work look like dozens of pending commits; stale stacked WhatsApp branches also had different hashes for functionality already merged through PR #204.
+- cost: 1-2 lines, always-loaded
+
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — Embedded Signup cannot depend on browser asset IDs
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta retired WhatsApp Embedded Signup v2/v3 on 2026-10-15. Yukti launches the Facebook Login for Business configuration without sessionInfoVersion and treats browser waba_id/phone_number_id as optional hints: after exchanging the OAuth code, the server resolves granted WABAs from debug_token granular scopes and phone numbers from /{waba_id}/phone_numbers. Never silently choose when multiple phones are available.`
+- why: the live app returned a valid OAuth code after Meta confirmation but no usable WA_EMBEDDED_SIGNUP asset event, reproducing “WhatsApp did not return a business account or phone number”; requiring both IDs client-side blocked onboarding even though Graph authorization succeeded.
+- cost: 2-3 lines, on-demand MEMORY.md
+
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — FB.login codes are bound to the SDK popup callback
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta FB.login popup authorization codes are bound to the SDK-generated redirect_uri (currently the dynamic https://staticxx.facebook.com/x/connect/xd_arbiter/ callback, including its fragment). Capture that exact value from the OAuth popup URL and send it in the server-side code exchange; the app page URL, an omitted redirect_uri, or a reconstructed callback produces OAuth subcode 36008. Strictly allowlist the Meta callback host/path before exchange.`
+- why: app.yukti.so reached the PIN step but the live develop callback failed at /oauth/access_token with Meta subcode 36008; the deployed app-ID/secret pair independently validated, and Meta's current debug SDK shows permission_oauth_transform replacing redirect_uri with UIServer.xdHandler.
+- cost: 2-3 lines, on-demand MEMORY.md
+
+### 2026-10-23 codex/fix-whatsapp-oauth-redirect — server-side tenant flags require PostHog group context
+- [ ] target: docs/architecture.md (feature flags)   change: add
+- text: `Server-side evaluations of tenant-targeted PostHog flags must pass both the stable tenant distinct ID and the group context \`groups: { tenant: tenantId }\`, matching the browser's \`posthog.group('tenant', tenantId)\`. A 100% tenant rollout still evaluates false with \`no_group_type\` when the group context is omitted.`
+- why: `supabase/functions/whatsapp-inbound-webhook/index.ts` passed only `distinct_id`, causing valid MobileHub inbound messages to be skipped as `feature_disabled`; the same live evaluation changed from `no_group_type`/false to `condition_match`/true when the tenant group was supplied.
+- cost: 1-2 lines, on-demand architecture.md
+
+### 2026-10-23 codex/fix-whatsapp-v4-phone-resolution — Embedded Signup cannot depend on browser asset IDs
+- [ ] target: MEMORY.md (WhatsApp integration incident note)   change: add
+- text: `Meta retired WhatsApp Embedded Signup v2/v3 on 2026-10-15. Yukti launches the Facebook Login for Business configuration without sessionInfoVersion and treats browser waba_id/phone_number_id as optional hints: after exchanging the OAuth code, the server resolves granted WABAs from debug_token granular scopes and phone numbers from /{waba_id}/phone_numbers. Never silently choose when multiple phones are available.`
+- why: the live app returned a valid OAuth code after Meta confirmation but no usable WA_EMBEDDED_SIGNUP asset event, reproducing “WhatsApp did not return a business account or phone number”; requiring both IDs client-side blocked onboarding even though Graph authorization succeeded.
+- cost: 2-3 lines, on-demand MEMORY.md
 ## Applied log
 ### 2026-10-09 ops/prod-guard-w1 — one session approval covers a named set of read-only prod query classes
 - [x] applied 2026-10-09 — target: CLAUDE.md (Prod safety)   change: edit (same line, no new line)

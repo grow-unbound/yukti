@@ -19,8 +19,7 @@ import {
 export { LockTimeoutError };
 import {
   normalizeLocationAssociatedUsers,
-  // syncLocationAssignees, // Disabled — see persistLocations for details. Re-enable this import if that call is restored.
-} from '../../../src/lib/location-assignees.ts';
+} from '../../../src/lib/location-assignee-normalization.ts';
 import { logCheckpoint, startTimer } from './sync-log.ts';
 import type { createAdminClient } from './sync-utils.ts';
 import {
@@ -3975,20 +3974,15 @@ async function persistContactPersonsPage(
     return result;
   }
 
-  // Batch-resolve buyer_ids from the entity map written by the customers phase
-  const { data: entityRows, error: entityError } = await admin
-    .schema('app')
-    .from('integration_entity_map')
-    .select('external_id, internal_id')
-    .eq('tenant_id', tenantId)
-    .eq('tenant_integration_id', integrationId)
-    .eq('entity_type', 'customers')
-    .in('external_id', contactIds);
-
-  if (entityError) throw new Error(`Entity map lookup failed: ${entityError.message}`);
-
-  const buyerIdMap = new Map<string, string>(
-    (entityRows ?? []).map((r) => [r.external_id as string, r.internal_id as string]),
+  // Reconnects can temporarily leave the integration entity map incomplete.
+  // Resolve through active mappings first, then fall back to buyers.external_ref.
+  const buyerIdMap = await resolveInternalIdsWithFallback(
+    admin,
+    tenantId,
+    integrationId,
+    'customers',
+    'buyers',
+    contactIds,
   );
 
   const contactRows: JsonRecord[] = [];

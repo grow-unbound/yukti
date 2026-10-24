@@ -46,9 +46,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to load count' }, { status: 500 });
     }
 
-    const whatsappInboxEnabled = await getFlag(FEATURE_FLAGS.WHATSAPP_INBOX, claims.tenant_id);
+    const [whatsappInboxEnabled, emailInboxEnabled] = await Promise.all([
+      getFlag(FEATURE_FLAGS.WHATSAPP_INBOX, claims.tenant_id),
+      getFlag(FEATURE_FLAGS.EMAIL_INBOX, claims.tenant_id),
+    ]);
     const rows = ((data ?? []) as Array<{ entry_type?: string }>)
-      .filter((row) => whatsappInboxEnabled || row.entry_type !== 'whatsapp_buyer_message');
+      .filter((row) => whatsappInboxEnabled || row.entry_type !== 'whatsapp_buyer_message')
+      .filter((row) => emailInboxEnabled || row.entry_type !== 'email_buyer_message');
     return NextResponse.json({ count: rows.length }, { headers: SELLER_CACHE_PERSONAL });
   } catch (error) {
     console.error('[GET /api/tenant/entries/count]', error);

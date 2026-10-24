@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yukti-email-ingest",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "preview_urls": false,
+  "observability": { "enabled": true, "logs": { "enabled": true } },
+  // Private bucket (never the public assets bucket): raw .eml, attachments and
+  // pending-replay markers. Create it first: wrangler r2 bucket create yukti-email-raw
+  "r2_buckets": [{ "binding": "EMAIL_BUCKET", "bucket_name": "yukti-email-raw" }],
+  // Replays mail whose webhook call failed transiently (see src/index.ts).
+  "triggers": { "crons": ["*/5 * * * *"] }
+  // Secrets (wrangler secret put): EMAIL_INGEST_SECRET, EMAIL_INGEST_URL
+  // Email Routing: route the mail domain's catch-all to this Worker (dashboard).
+}

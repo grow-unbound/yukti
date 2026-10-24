@@ -33,6 +33,7 @@ import {
   updatePhaseJob,
 } from '../_shared/sync-utils.ts';
 import {
+  attachParentContactId,
   createZohoAdapter,
   ZOHO_DETAIL_FETCH_CONCURRENCY,
   ZOHO_DETAIL_FETCH_BATCH_PACE_MS,
@@ -143,7 +144,7 @@ Deno.serve(async (req: Request) => {
           }
           const persons = result.value?.contact_persons;
           if (Array.isArray(persons)) {
-            allContactPersons.push(...persons);
+            allContactPersons.push(...attachParentContactId(persons, batch[j]));
           }
         }
 

@@ -10,7 +10,11 @@ import { getBuyerCatalogContext } from '@/lib/server/buyer-catalog-context';
 import { getSelectedBuyerDeliveryFromRequest } from '@/lib/server/buyer-location-selection';
 import type { BuyerDeliveryLocation } from '@/lib/buyer-delivery-location';
 import { resolveNearestBuyerLocation } from '@/lib/server/buyer-routing';
-import { searchScopedProducts, type ScopedProductSearchRow } from '@/lib/server/scoped-product-search';
+import {
+  BUYER_SCOPED_PRODUCT_COLUMNS,
+  searchScopedProducts,
+  type ScopedProductSearchRow,
+} from '@/lib/server/scoped-product-search';
 import { r2Url } from '@/lib/r2-url';
 import type {
   BuyerBrand,
@@ -21,6 +25,7 @@ import type {
 } from '@/types/buyer';
 import { isPendingBuyerCatalogSession } from '@/lib/server/buyer-pending-guard';
 import { campaignOverridePrice } from '@/lib/server/buyer-campaign-pricing';
+import { getCampaignItemsForProducts } from '@/lib/server/campaign-items-cache';
 import {
   getCachedGuestPricingContext,
   resolveGuestPricingContext,
@@ -183,17 +188,10 @@ export async function resolveVisibleCampaignMap(
   const visibleCampaignIds = visibleCampaigns.map((campaign) => campaign.id);
   const campaignPriority = new Map(visibleCampaignIds.map((id, index) => [id, index]));
 
-  const { data, error } = await db
-    .schema('app')
-    .from('campaign_items')
-    .select('campaign_id, tenant_product_id, price_override, display_order, is_featured')
-    .in('campaign_id', visibleCampaignIds)
-    .in('tenant_product_id', productIds)
-    .is('deleted_at', null);
-  if (error) throw new Error(error.message);
+  const data = await getCampaignItemsForProducts(db, tenantId, visibleCampaignIds, productIds);
 
   const campaignsById = new Map(visibleCampaigns.map((campaign) => [campaign.id, campaign]));
-  const rows = (data ?? []) as Array<CampaignItemRow & { campaign_id: string }>;
+  const rows = data as Array<CampaignItemRow & { campaign_id: string }>;
   rows.sort((a, b) => {
     const aHasOverride = campaignOverridePrice(a.price_override) != null ? 0 : 1;
     const bHasOverride = campaignOverridePrice(b.price_override) != null ? 0 : 1;
@@ -442,6 +440,7 @@ export async function enrichBuyerProducts(
   const rows: ScopedProductSearchRow[] = scopedRows ?? (
     orderedIds.length > 0
       ? (await searchScopedProducts({
+          columns: BUYER_SCOPED_PRODUCT_COLUMNS,
           db,
           tenantId,
           buyerId: fetchPricedForBuyer ? buyerId : null,
@@ -648,6 +647,7 @@ async function resolveCatalogScope(params: CatalogPageParams): Promise<CatalogSc
     }
 
     const { rows, total } = await searchScopedProducts({
+      columns: BUYER_SCOPED_PRODUCT_COLUMNS,
       db,
       tenantId,
       buyerId: params.buyerId,
@@ -669,18 +669,10 @@ async function resolveCatalogScope(params: CatalogPageParams): Promise<CatalogSc
       return { orderedProductIds: [], total, selectedCampaign, campaignByProductId: new Map(), textByProductId };
     }
 
-    const { data: pageCampaignItemsData, error: pageCampaignItemsError } = await db
-      .schema('app')
-      .from('campaign_items')
-      .select('tenant_product_id, price_override, display_order, is_featured')
-      .eq('campaign_id', selectedCampaign.id)
-      .in('tenant_product_id', orderedProductIds)
-      .is('deleted_at', null)
-      .limit(orderedProductIds.length);
-    if (pageCampaignItemsError) throw new Error(pageCampaignItemsError.message);
+    const pageCampaignItems = await getCampaignItemsForProducts(db, tenantId, [selectedCampaign.id], orderedProductIds);
 
     const itemByProductId = new Map(
-      ((pageCampaignItemsData ?? []) as CampaignItemRow[]).map((row) => [row.tenant_product_id, row]),
+      (pageCampaignItems as CampaignItemRow[]).map((row) => [row.tenant_product_id, row]),
     );
     const campaignByProductId = new Map(
       orderedProductIds.flatMap((productId) => {
@@ -718,6 +710,7 @@ async function resolveCatalogScope(params: CatalogPageParams): Promise<CatalogSc
   }
 
   const { rows, total } = await searchScopedProducts({
+    columns: BUYER_SCOPED_PRODUCT_COLUMNS,
     db,
     tenantId,
     buyerId: params.guestPricing ? null : params.buyerId,

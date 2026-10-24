@@ -16,7 +16,7 @@ export interface NearestLocationResponse {
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse<NearestLocationResponse>> {
-  const profile = await requireBuyerAccessProfile(req);
+  const profile = await requireBuyerAccessProfile(req, { slim: true });
   if (!profile?.context.tenant_id) {
     return NextResponse.json({ warehouse_id: null, warehouse_name: null, location_id: null, location_name: null, distance_km: null, fallback: true });
   }

@@ -99,3 +99,6 @@ verify_jwt = false
 
 [functions.whatsapp-inbound-webhook]
 verify_jwt = false
+
+[functions.email-inbound-webhook]
+verify_jwt = false

@@ -4,7 +4,7 @@ import { insightText } from '@/lib/pulse/insight-copy';
 import type { PulseActNowResponse, PulseFunnelResponse, PulsePatternsResponse, PulseScorecardResponse, PulseSellThroughResponse, PulseWindowMetrics } from '@/types/pulse-v2';
 
 const metrics = (over: Partial<PulseWindowMetrics> = {}): PulseWindowMetrics => ({
-  demand_value: 0, demand_docs: 0, demand_buyers: 0,
+  primary_demand_kind: 'estimates', demand_value: 0, demand_docs: 0, demand_buyers: 0,
   quotes: { count: 0, converted: 0, lost: 0, open: 0 }, median_quote: null, avg_lines: null,
   app_invoiced_value: 0, app_invoiced_docs: 0, app_invoiced_buyers: 0, total_invoiced_value: 0, total_invoiced_docs: 0,
   engaged_buyers: 0, ...over,

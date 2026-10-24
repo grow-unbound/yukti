@@ -49,7 +49,11 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 }
 
 export type ApiFetchInit = RequestInit & {
-  /** Bypass browser HTTP cache — use for auth-gated detail views that must reflect latest status. */
+  /**
+   * Always revalidate with the server (`cache: 'no-cache'`) — use for auth-gated views that must reflect the
+   * latest status. Unlike `no-store` this keeps the validator, so routes that send an ETag answer an unchanged
+   * page with an empty 304 instead of the full body (matters on 3G/4G).
+   */
   fresh?: boolean;
 };
 
@@ -96,7 +100,7 @@ export async function apiFetch(url: string, init?: ApiFetchInit): Promise<Respon
 
   return fetchWithRateLimitRetry(target, {
     ...requestInit,
-    cache: guestTwin ? requestInit.cache : fresh ? 'no-store' : requestInit.cache,
+    cache: guestTwin ? requestInit.cache : fresh ? 'no-cache' : requestInit.cache,
     headers: {
       ...authHeaders,
       ...requestInit.headers,
