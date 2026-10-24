@@ -1,19 +1,37 @@
 /**
- * ops-daily-digest — posts the previous day's platform + per-tenant rollup
- * and any redflags (app.ops_daily_rollup / app.ops_daily_flags) to Slack.
+ * ops-daily-digest — posts the previous IST day's canonical business activity,
+ * digital usage, operational health and explicit alerts to Slack.
  *
- * Invoked nightly by pg_cron (see 20260916_ops_daily_digest_send.sql), a few
- * minutes after app.compute_ops_daily_rollup has finished for the day.
- * Deterministic formatting only — no AI, no external calls beyond Slack.
- *
- * Supabase Dashboard → Edge Functions → ops-daily-digest
- *   Headers: x-push-secret: <INTEGRATIONS_PUSH_SECRET>
- *   Body (optional): { "day": "YYYY-MM-DD" } — defaults to yesterday, IST.
+ * Invoked by pg_cron after app.compute_ops_daily_rollup. Delivery is
+ * idempotent per day; a second scheduled invocation provides a bounded retry.
  */
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import {
+  buildDigestMessage,
+  type DigestFlagRow,
+  type DigestRollupRow,
+  type DigestTenant,
+} from '../_shared/ops-daily-digest.ts';
 
 const FN = '[ops-daily-digest]';
+
+const ROLLUP_FIELDS = [
+  'tenant_id',
+  'estimates_enabled', 'orders_enabled', 'invoices_enabled', 'primary_demand_kind',
+  'estimate_count', 'estimate_value', 'estimate_buyer_count', 'estimate_void_count',
+  'order_count', 'order_value', 'order_buyer_count', 'order_cancelled_count',
+  'invoice_count', 'invoice_value', 'invoice_buyer_count', 'invoice_excluded_count',
+  'app_estimate_count', 'app_estimate_value', 'app_estimate_buyer_count',
+  'app_order_count', 'app_order_value', 'app_order_buyer_count',
+  'app_invoice_count', 'app_invoice_value', 'app_invoice_buyer_count',
+  'app_user_count', 'app_demand_buyer_count', 'repeat_app_demand_buyer_count',
+  'first_time_app_user_count', 'new_customer_record_count',
+  'webhook_event_count', 'webhook_failed_event_count', 'webhook_error_count',
+  'webhook_retryable_error_count', 'webhook_error_critical_count',
+  'sync_job_success_count', 'sync_job_failure_count', 'stale_integration_count',
+  'post_sync_rebuild_failure_count', 'active_tenant_count', 'computed_at', 'calculation_version',
+].join(',');
 
 function createAdminClient() {
   const url = Deno.env.get('SUPABASE_URL');
@@ -26,7 +44,7 @@ function createAdminClient() {
 function verifyPushSecret(req: Request): boolean {
   const secret = Deno.env.get('INTEGRATIONS_PUSH_SECRET')?.trim()
     ?? Deno.env.get('INTEGRATIONS_DISPATCH_SECRET')?.trim();
-  if (!secret) return true; // no secret configured → open (dev mode)
+  if (!secret) return true;
   const provided = req.headers.get('x-push-secret')?.trim() ?? '';
   if (provided.length !== secret.length) return false;
   const enc = new TextEncoder();
@@ -37,34 +55,12 @@ function verifyPushSecret(req: Request): boolean {
   return diff === 0;
 }
 
-function ok(data: Record<string, unknown> = {}): Response {
-  return new Response(JSON.stringify({ ok: true, ...data }), {
-    status: 200,
+function jsonResponse(status: number, data: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(data), {
+    status,
     headers: { 'Content-Type': 'application/json' },
   });
 }
-
-type RollupRow = {
-  tenant_id: string | null;
-  order_count: number;
-  order_value: number;
-  app_order_count: number;
-  invoice_count: number;
-  invoice_value: number;
-  estimate_count: number;
-  active_buyer_count: number;
-  new_buyer_count: number;
-  webhook_error_count: number;
-  sync_job_failure_count: number;
-  active_tenant_count: number;
-};
-
-type FlagRow = {
-  tenant_id: string | null;
-  metric: string;
-  severity: 'critical' | 'warning' | 'info';
-  message: string;
-};
 
 function yesterdayIst(): string {
   const nowIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -72,155 +68,152 @@ function yesterdayIst(): string {
   return nowIst.toISOString().slice(0, 10);
 }
 
-function formatInr(n: number): string {
-  return `₹${Math.round(n).toLocaleString('en-IN')}`;
-}
-
-function severityEmoji(severity: string): string {
-  if (severity === 'critical') return '🔴';
-  if (severity === 'warning') return '🟡';
-  return 'ℹ️';
+export function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
-  }
-
-  if (!verifyPushSecret(req)) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  if (req.method !== 'POST') return jsonResponse(405, { ok: false, error: 'method_not_allowed' });
+  if (!verifyPushSecret(req)) return jsonResponse(401, { ok: false, error: 'unauthorized' });
 
   let body: unknown = {};
   try {
     body = await req.json();
   } catch {
-    // empty body is fine — defaults apply
+    // An empty body uses the previous IST day.
   }
   const requestedDay = (body as { day?: unknown } | null)?.day;
   const day = typeof requestedDay === 'string' ? requestedDay : yesterdayIst();
+  if (!isIsoDate(day)) return jsonResponse(400, { ok: false, error: 'invalid_day' });
 
-  const admin = createAdminClient();
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    console.error(`${FN} configuration failed:`, error instanceof Error ? error.message : String(error));
+    return jsonResponse(500, { ok: false, error: 'function_configuration_failed' });
+  }
 
-  const { data: webhookUrl, error: webhookUrlErr } = await admin
+  const { data: existingDelivery, error: deliveryLookupError } = await admin
+    .schema('app')
+    .from('ops_daily_digest_deliveries')
+    .select('status, attempt_count')
+    .eq('day', day)
+    .maybeSingle<{ status: string; attempt_count: number }>();
+
+  if (deliveryLookupError) {
+    console.error(`${FN} delivery lookup failed:`, deliveryLookupError.message);
+    return jsonResponse(503, { ok: false, error: 'delivery_lookup_failed' });
+  }
+  if (existingDelivery?.status === 'sent') {
+    return jsonResponse(200, { ok: true, day, skipped: 'already_sent' });
+  }
+
+  const attemptCount = (existingDelivery?.attempt_count ?? 0) + 1;
+  const { error: attemptError } = await admin.schema('app').from('ops_daily_digest_deliveries').upsert({
+    day,
+    status: 'attempting',
+    attempt_count: attemptCount,
+    last_attempt_at: new Date().toISOString(),
+    response_status: null,
+    error_category: null,
+    error_message: null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'day' });
+  if (attemptError) {
+    console.error(`${FN} failed to record attempt:`, attemptError.message);
+    return jsonResponse(503, { ok: false, error: 'delivery_attempt_write_failed' });
+  }
+
+  async function fail(
+    status: number,
+    category: string,
+    detail?: string,
+    responseStatus?: number,
+  ): Promise<Response> {
+    const safeDetail = detail?.slice(0, 500) ?? null;
+    const { error } = await admin.schema('app').from('ops_daily_digest_deliveries').update({
+      status: 'failed',
+      response_status: responseStatus ?? null,
+      error_category: category,
+      error_message: safeDetail,
+      updated_at: new Date().toISOString(),
+    }).eq('day', day);
+    if (error) console.error(`${FN} failed to record ${category}:`, error.message);
+    return jsonResponse(status, { ok: false, error: category });
+  }
+
+  const { data: webhookUrl, error: webhookUrlError } = await admin
     .schema('app')
     .rpc('get_ops_slack_webhook_url');
-
-  if (webhookUrlErr) {
-    console.error(`${FN} failed to load Slack webhook URL:`, webhookUrlErr.message);
-    return ok({ skipped: 'webhook_url_lookup_failed' });
+  if (webhookUrlError) {
+    console.error(`${FN} Slack webhook lookup failed:`, webhookUrlError.message);
+    return await fail(503, 'webhook_url_lookup_failed', webhookUrlError.message);
   }
   if (!webhookUrl) {
-    console.warn(`${FN} no Slack webhook URL configured (app.ops_slack_webhook_url vault secret unset) — skipping`);
-    return ok({ skipped: 'no_webhook_configured' });
+    console.error(`${FN} Slack webhook URL is not configured`);
+    return await fail(503, 'no_webhook_configured');
   }
 
-  const [{ data: globalRow, error: globalErr }, { data: tenantRows, error: tenantRowsErr }, { data: flags, error: flagsErr }, { data: tenants, error: tenantsErr }] = await Promise.all([
-    admin.schema('app').from('ops_daily_rollup').select('*').eq('day', day).is('tenant_id', null).maybeSingle<RollupRow>(),
-    admin.schema('app').from('ops_daily_rollup').select('*').eq('day', day).not('tenant_id', 'is', null).order('order_value', { ascending: false }),
-    admin.schema('app').from('ops_daily_flags').select('tenant_id, metric, severity, message').eq('day', day),
-    admin.schema('app').from('tenants').select('id, business_name').is('deleted_at', null),
+  const [globalResult, tenantRowsResult, flagsResult, tenantsResult] = await Promise.all([
+    admin.schema('app').from('ops_daily_rollup').select(ROLLUP_FIELDS).eq('day', day).is('tenant_id', null).maybeSingle<DigestRollupRow>(),
+    admin.schema('app').from('ops_daily_rollup').select(ROLLUP_FIELDS).eq('day', day).not('tenant_id', 'is', null),
+    admin.schema('app').from('ops_daily_flags').select('tenant_id,metric,severity,current_value,baseline_value,delta_pct,message').eq('day', day),
+    admin.schema('app').from('tenants').select('id,business_name').is('deleted_at', null),
   ]);
 
-  if (globalErr || tenantRowsErr || flagsErr || tenantsErr) {
-    const msg = globalErr?.message ?? tenantRowsErr?.message ?? flagsErr?.message ?? tenantsErr?.message;
-    console.error(`${FN} query failed:`, msg);
-    return ok({ error: 'query_failed', detail: msg });
+  const queryError = globalResult.error ?? tenantRowsResult.error ?? flagsResult.error ?? tenantsResult.error;
+  if (queryError) {
+    console.error(`${FN} digest query failed:`, queryError.message);
+    return await fail(503, 'query_failed', queryError.message);
+  }
+  if (!globalResult.data) {
+    console.error(`${FN} no rollup found for ${day}`);
+    return await fail(503, 'no_rollup_for_day');
   }
 
-  if (!globalRow) {
-    console.warn(`${FN} no rollup found for ${day} — has app.compute_ops_daily_rollup run yet?`);
-    return ok({ skipped: 'no_rollup_for_day' });
+  const globalRow = globalResult.data as DigestRollupRow;
+  const computedAgeMs = Date.now() - Date.parse(globalRow.computed_at);
+  if (!Number.isFinite(computedAgeMs) || computedAgeMs > 24 * 60 * 60 * 1000) {
+    console.error(`${FN} stale rollup for ${day}:`, globalRow.computed_at);
+    return await fail(503, 'stale_rollup', globalRow.computed_at);
   }
 
-  const tenantNameById = new Map((tenants ?? []).map((t) => [t.id as string, t.business_name as string]));
-  const totalTenants = tenantNameById.size;
-
-  const blocks: Record<string, unknown>[] = [
-    {
-      type: 'header',
-      text: { type: 'plain_text', text: `📊 Yukti Daily Digest — ${day}`, emoji: true },
-    },
-    {
-      type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `*Orders*\n${globalRow.order_count} (${formatInr(globalRow.order_value)})` },
-        { type: 'mrkdwn', text: `*Buyer app orders*\n${globalRow.app_order_count}` },
-        { type: 'mrkdwn', text: `*Invoices*\n${globalRow.invoice_count} (${formatInr(globalRow.invoice_value)})` },
-        { type: 'mrkdwn', text: `*Estimates*\n${globalRow.estimate_count}` },
-        { type: 'mrkdwn', text: `*Active buyers*\n${globalRow.active_buyer_count}` },
-        { type: 'mrkdwn', text: `*New buyers*\n${globalRow.new_buyer_count}` },
-        { type: 'mrkdwn', text: `*Active tenants*\n${globalRow.active_tenant_count} / ${totalTenants}` },
-        { type: 'mrkdwn', text: `*Webhook errors*\n${globalRow.webhook_error_count}` },
-      ],
-    },
-    { type: 'divider' },
-  ];
-
-  const severityRank: Record<string, number> = { critical: 0, warning: 1, info: 2 };
-  const sortedFlags = [...((flags ?? []) as FlagRow[])].sort(
-    (a, b) => (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9),
-  );
-
-  if (sortedFlags.length === 0) {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: '✅ *No redflags* — all metrics within normal range.' },
-    });
-  } else {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: `⚠️ *${sortedFlags.length} redflag${sortedFlags.length === 1 ? '' : 's'}*` },
-    });
-    for (const flag of sortedFlags.slice(0, 15)) {
-      const scope = flag.tenant_id ? (tenantNameById.get(flag.tenant_id) ?? 'Unknown tenant') : 'Platform-wide';
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: `${severityEmoji(flag.severity)} *${scope}* — ${flag.message}` },
-      });
-    }
-    if (sortedFlags.length > 15) {
-      blocks.push({
-        type: 'context',
-        elements: [{ type: 'mrkdwn', text: `…and ${sortedFlags.length - 15} more.` }],
-      });
-    }
-  }
-
-  const topTenants = ((tenantRows ?? []) as RollupRow[]).filter((r) => r.order_count > 0 || r.invoice_count > 0).slice(0, 5);
-  if (topTenants.length > 0) {
-    blocks.push({ type: 'divider' });
-    blocks.push({
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: '*Top tenants by order value*\n' + topTenants
-          .map((r) => `• ${tenantNameById.get(r.tenant_id as string) ?? 'Unknown'} — ${r.order_count} orders (${formatInr(r.order_value)})`)
-          .join('\n'),
-      },
-    });
-  }
-
-  const criticalCount = sortedFlags.filter((f) => f.severity === 'critical').length;
-  const fallbackText = criticalCount > 0
-    ? `Yukti Daily Digest ${day}: ${criticalCount} critical redflag(s)`
-    : `Yukti Daily Digest ${day}: ${globalRow.order_count} orders, ${sortedFlags.length} redflag(s)`;
+  const payload = buildDigestMessage({
+    day,
+    globalRow,
+    tenantRows: (tenantRowsResult.data ?? []) as DigestRollupRow[],
+    flags: (flagsResult.data ?? []) as DigestFlagRow[],
+    tenants: (tenantsResult.data ?? []) as DigestTenant[],
+  });
 
   const slackResponse = await fetch(webhookUrl as string, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: fallbackText, blocks }),
+    body: JSON.stringify(payload),
   });
-
   if (!slackResponse.ok) {
-    const respBody = await slackResponse.text().catch(() => '');
-    console.error(`${FN} Slack post failed ${slackResponse.status}: ${respBody.slice(0, 300)}`);
-    return ok({ error: 'slack_post_failed', status: slackResponse.status });
+    const responseBody = await slackResponse.text().catch(() => '');
+    console.error(`${FN} Slack post failed ${slackResponse.status}: ${responseBody.slice(0, 300)}`);
+    return await fail(502, 'slack_post_failed', responseBody, slackResponse.status);
   }
 
-  console.log(`${FN} posted digest for ${day} (${sortedFlags.length} flags)`);
-  return ok({ day, flags: sortedFlags.length });
+  const { error: sentError } = await admin.schema('app').from('ops_daily_digest_deliveries').update({
+    status: 'sent',
+    rollup_computed_at: globalRow.computed_at,
+    response_status: slackResponse.status,
+    sent_at: new Date().toISOString(),
+    error_category: null,
+    error_message: null,
+    updated_at: new Date().toISOString(),
+  }).eq('day', day);
+  if (sentError) {
+    console.error(`${FN} Slack posted but delivery state update failed:`, sentError.message);
+    return jsonResponse(500, { ok: false, error: 'sent_state_write_failed' });
+  }
+
+  console.log(`${FN} posted digest for ${day} (${payload.blocks.length} blocks, attempt ${attemptCount})`);
+  return jsonResponse(200, { ok: true, day, attempt: attemptCount });
 });

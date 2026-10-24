@@ -1,11 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
 
-import { createZohoAdapter, getZohoPhasePlan } from '../../../supabase/functions/_shared/integrations-zoho';
+import {
+  attachParentContactId,
+  createZohoAdapter,
+  getZohoPhasePlan,
+} from '../../../supabase/functions/_shared/integrations-zoho';
 
 describe('zoho transactional sync windowing', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('attaches the request-path contact id to scoped contact-person records', () => {
+    expect(attachParentContactId([
+      { contact_person_id: 'CP-1', first_name: 'Asha' },
+      { contact_person_id: 'CP-2', contact_id: 'CUST-PROVIDER' },
+    ], 'CUST-PATH')).toEqual([
+      { contact_person_id: 'CP-1', first_name: 'Asha', contact_id: 'CUST-PATH' },
+      { contact_person_id: 'CP-2', contact_id: 'CUST-PROVIDER' },
+    ]);
   });
 
   it('keeps estimates, orders, and invoices in the transactional phase plan', () => {

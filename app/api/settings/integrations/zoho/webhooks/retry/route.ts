@@ -7,8 +7,10 @@ import {
   getIntegrationWebhookDefinitions,
 } from '@/lib/integrations/definitions';
 import {
+  buildZohoWebhookRegistrationName,
   buildZohoWebhookRegistrationPayload,
   buildZohoWorkflowRegistrationPayload,
+  deleteZohoWebhookRegistrationsByName,
   fetchZohoSettings,
   pauseForZohoSettingsRateLimit,
 } from '@/lib/integrations/zoho-webhooks';
@@ -304,6 +306,37 @@ export async function POST(request: NextRequest) {
       integration.integration_type_id === 'zoho_inventory' ? 'zoho_inventory' : 'zoho_books',
     );
     const accessToken = await refreshAccessToken(secret, dc);
+
+    // A failed/reconnected row may have no stored remote id even though Zoho
+    // still owns an action under the stable Yukti name. Reconcile only broken
+    // registrations by name before attempting creates; healthy rows stay live.
+    const { data: currentWebhookRows } = await db.schema('app').from('integration_webhooks')
+      .select('entity_type, rule_type, status, remote_webhook_id')
+      .eq('tenant_integration_id', integration.id)
+      .eq('provider', 'zoho')
+      .is('deleted_at', null);
+    const currentByEntityRule = new Map(
+      (currentWebhookRows ?? []).map((row) => [`${row.entity_type}:${row.rule_type}`, row]),
+    );
+    const namesToClean = definitions.flatMap((definition) => (
+      (definition.workflow_rule_types ?? (['add_edit'] as const)).flatMap((ruleType) => {
+        const row = currentByEntityRule.get(`${definition.entity_type}:${ruleType}`);
+        const healthy = row?.status === 'active' && Boolean(row.remote_webhook_id);
+        return healthy
+          ? []
+          : [buildZohoWebhookRegistrationName({ entityType: definition.entity_type, ruleType })];
+      })
+    ));
+    if (namesToClean.length > 0) {
+      await deleteZohoWebhookRegistrationsByName({
+        accessToken,
+        orgId,
+        dc,
+        integrationTypeId: integration.integration_type_id,
+        webhookNames: namesToClean,
+      });
+    }
+
     const setupByEntity: Record<string, ReturnType<typeof buildWebhookSetupState>> = {};
     const webhookIdsByEntity: Record<string, string> = {};
 
@@ -333,6 +366,7 @@ export async function POST(request: NextRequest) {
             tenant_integration_id: integration.id,
             provider: 'zoho',
             entity_type: definition.entity_type,
+            rule_type: ruleType,
             event_types: rowEventTypes,
             secret: crypto.randomUUID().replace(/-/g, ''),
             status: 'pending',
@@ -349,6 +383,10 @@ export async function POST(request: NextRequest) {
 
         if (ruleType === 'add_edit') {
           webhookIdsByEntity[definition.entity_type] = webhook.id;
+        }
+
+        if (webhook.status === 'active' && webhook.remote_webhook_id) {
+          continue;
         }
 
         const callbackUrl = `${getFunctionsBaseUrl()}/integrations-webhook/${webhook.endpoint_token}`;
@@ -401,6 +439,7 @@ export async function POST(request: NextRequest) {
               integration_type_id: integration.integration_type_id ?? 'zoho_books',
               workflow_ids: registration.workflowIds,
               remote_webhook_ids: registration.webhookIds,
+              last_error: null,
             },
             secret: webhookSecret,
             last_verified_at: remoteWebhookId ? new Date().toISOString() : null,
@@ -408,12 +447,18 @@ export async function POST(request: NextRequest) {
           }).eq('id', webhook.id);
         } catch (error) {
           entityHasAnyFailure = true;
+          const message = error instanceof Error ? error.message : String(error);
           await db.schema('app').from('integration_webhooks').update({
             remote_webhook_id: null,
             external_ref: null,
             status: 'failed',
             is_active: false,
             last_verified_at: null,
+            webhook_config: {
+              ...toRecord(webhook.webhook_config),
+              last_error: message,
+              last_attempted_at: new Date().toISOString(),
+            },
             updated_by: claims.sub,
           }).eq('id', webhook.id);
         }
