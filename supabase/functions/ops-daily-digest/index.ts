@@ -44,7 +44,7 @@ function createAdminClient() {
 function verifyPushSecret(req: Request): boolean {
   const secret = Deno.env.get('INTEGRATIONS_PUSH_SECRET')?.trim()
     ?? Deno.env.get('INTEGRATIONS_DISPATCH_SECRET')?.trim();
-  if (!secret) return true;
+  if (!secret) return false;
   const provided = req.headers.get('x-push-secret')?.trim() ?? '';
   if (provided.length !== secret.length) return false;
   const enc = new TextEncoder();
