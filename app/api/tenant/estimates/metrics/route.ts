@@ -48,17 +48,15 @@ export async function GET(request: NextRequest) {
   const periodKey = PERIOD_KEY_BY_SELLER_PERIOD[sellerPeriod] ?? 'this_month';
 
   try {
-    const { data, error } = await supabaseAdmin.schema('app').rpc('get_landing_metrics_v4', {
+    const { data, error } = await supabaseAdmin.schema('app').rpc('get_landing_kpis', {
       p_tenant_id: claims.tenant_id,
       p_page_key: 'estimates',
       p_period_key: periodKey,
-      p_scope_kind: 'tenant',
-      p_scope_id: null,
       p_as_of: new Date().toISOString(),
     });
 
     if (error) {
-      console.error('[GET /api/tenant/estimates/metrics] get_landing_metrics_v4 failed', error);
+      console.error('[GET /api/tenant/estimates/metrics] get_landing_kpis failed', error);
       return timedJson({ error: 'Failed to fetch estimates metrics' }, { status: 500 });
     }
 

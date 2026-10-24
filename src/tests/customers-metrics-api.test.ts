@@ -58,17 +58,15 @@ describe('customers landing metrics api', () => {
     });
   });
 
-  it('calls get_landing_metrics_v4 for customers this_quarter', async () => {
+  it('calls get_landing_kpis for customers this_quarter', async () => {
     const response = await GET(new NextRequest('http://localhost:3000/api/tenant/customers/metrics'));
     expect(response.status).toBe(200);
     expect(rpcMock).toHaveBeenCalledWith(
-      'get_landing_metrics_v4',
+      'get_landing_kpis',
       expect.objectContaining({
         p_tenant_id: 'tenant-1',
         p_page_key: 'customers',
         p_period_key: 'this_quarter',
-        p_scope_kind: 'tenant',
-        p_scope_id: null,
       }),
     );
     const body = await response.json();

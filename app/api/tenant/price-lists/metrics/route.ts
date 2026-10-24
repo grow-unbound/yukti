@@ -43,17 +43,15 @@ export async function GET(request: NextRequest) {
     // point-in-time set, not a time-windowed metric. Written by
     // app._metrics_v4_refresh_landing_kpis's 'price_lists' block (page_key='price_lists',
     // grain='now') on the same periodic tick as every other v4 landing page.
-    const { data, error } = await supabaseAdmin.schema('app').rpc('get_landing_metrics_v4', {
+    const { data, error } = await supabaseAdmin.schema('app').rpc('get_landing_kpis', {
       p_tenant_id: claims.tenant_id,
       p_page_key: 'price_lists',
       p_period_key: 'now',
-      p_scope_kind: 'tenant',
-      p_scope_id: null,
       p_as_of: new Date().toISOString(),
     });
 
     if (error) {
-      console.error('[GET /api/tenant/price-lists/metrics] get_landing_metrics_v4 failed', error);
+      console.error('[GET /api/tenant/price-lists/metrics] get_landing_kpis failed', error);
       return timedJson({ error: 'Failed to fetch price lists metrics' }, { status: 500 });
     }
 

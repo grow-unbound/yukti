@@ -300,7 +300,7 @@ async function fetchSellerDashboardData(
     // get_metrics_v2_seller_dashboard and metrics_v2_transaction_landing), and
     // every query/computation that fed only those are gone -- confirmed unread
     // by the frontend (the 4 explore cards are each sourced from their own v4
-    // RPC; the KPI strip reads get_landing_metrics_v4 via useSellerDashboardMetrics,
+    // RPC; the KPI strip reads get_landing_kpis via useSellerDashboardMetrics,
     // including the "as of" timestamp, which used to come from portfolio.as_of).
     // `admin` stays a truthy empty marker so the frontend can still branch on
     // role via `dashboard.admin`.

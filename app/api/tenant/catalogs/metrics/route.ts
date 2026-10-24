@@ -38,17 +38,15 @@ export async function GET(request: NextRequest) {
   if (!supabaseAdmin) return timedJson({ error: 'Server configuration error' }, { status: 500 });
 
   try {
-    const { data, error } = await supabaseAdmin.schema('app').rpc('get_landing_metrics_v4', {
+    const { data, error } = await supabaseAdmin.schema('app').rpc('get_landing_kpis', {
       p_tenant_id: claims.tenant_id,
       p_page_key: 'campaigns',
       p_period_key: 'this_quarter',
-      p_scope_kind: 'tenant',
-      p_scope_id: null,
       p_as_of: new Date().toISOString(),
     });
 
     if (error) {
-      console.error('[GET /api/tenant/catalogs/metrics] get_landing_metrics_v4 failed', error);
+      console.error('[GET /api/tenant/catalogs/metrics] get_landing_kpis failed', error);
       return timedJson({ error: 'Failed to fetch campaign metrics' }, { status: 500 });
     }
 
